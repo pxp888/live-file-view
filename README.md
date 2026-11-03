@@ -46,8 +46,6 @@ Each 'window' needs an ID number.  There should be a counter that only increment
 
 Two windows can exist in the same file.  Windows can be referred to by window ID, or filename if only 1 window is open for a file.  
 
-
-
 Each window in the live-view block needs:
 
 * a line explaining that THIS IS THE CURRENT STATE OF THE FILE.
@@ -92,13 +90,9 @@ A sample view is below:
   <<<<END LIVE VIEW>>>>
 ```
 
-#### How to handle content drift within a window is still to be decided.
+#### How to handle content drift within a window is decided — see "drift inside a window" in the implementing notes.
 
-*This can be mechanically handled in the case of edit events, and we'll just accept the model must re-adjust the window manually in other cases. What do you think?*
-
-
-
-
+*A window is only a line range into the file's current state: refresh re-reads those offsets, edit events do not shift windows, and the header says when the file changed since the last refresh. No edit-event machinery.*
 
 ### Content formatting and line numbering
 
@@ -120,19 +114,13 @@ I would propose a maximum live-view size of (contextLimit - reserveTokens) * 2/3
 
 I would also set a minimum live-view reserve size of (contextLimit - reserveTokens) * 1/3 .  This also defines the maximum normal context size at (contextLimit - reserveTokens) * 2/3 . 
 
-
-
 open calls should fail with a warning to close windows or reduce their size if: 
 
 * the new window would extend the live-view beyond (contexLimit - reserveTokens)*2/3  
 
 * the new window plus existing context exceeds contextLimit - reserveTokens. 
 
-
-
 The warning itself should state that context is limited, and suggest possible actions.  It should also mention that not reducing the window will result in earlier compaction.  
-
-
 
 Compaction of the normal context should be triggered when: 
 
@@ -140,11 +128,64 @@ Compaction of the normal context should be triggered when:
 
 * context + live-view size + reserveTokens > contextLimit 
 
-
-
-
-
 ## implementing notes
+
+### how the block reaches the model
+
+Use `pi.on("context")`, not `context_with_system`. The `context` handler fires before every LLM call and receives the conversation without the system message; when the handler returns a changed list, Pi re-projects its prompt and tool declarations onto the head. So the extension only ever appends — it never owns the prompt, never risks dropping the tool declarations, never has to reimplement Pi's prompt state. `context_with_system` hands over the whole transcript including the head, which is a footgun we do not need.
+
+The block is appended as a single trailing `system` message, after the newest toolResult, so it is the last thing the model reads.
+
+* `system` and not `user`: a `user` block is a conversational turn — the model can answer it, quote it, or treat it as the user speaking. The live view is standing reference material, not a turn. It also avoids two consecutive user messages following a toolResult.
+* pi-ai already handles mid-conversation system messages (`anthropic-messages.js` collects them, `openai-completions.js` passes them through as `role: "system"`). The llama.cpp/Ollama qwen path uses the OpenAI-compatible route, which accepts them.
+* Fallback switch: if a strict chat template rejects a non-leading system message, drop to `user` role and let the `<<<<LIVE VIEW>>>>` fences do the labelling instead of the role. One boolean, not a config system.
+* The block is never persisted into the session, so it is invisible in the transcript and the TUI. Accepted.
+
+### open() and close() signatures
+
+* `open(path, offset, limit)` — same parameter shape as `read()`: 1-based `offset`, `limit` in lines, same 2000 line / 50kb limits, whichever comes first.
+* `open()` returns a confirmation only, never file contents: that the file was opened, the window ID, and the range now shown.
+* Opening a different range of the same file creates a new window with a new unique ID.
+* Altering an existing window requires its ID: `open(windowId, offset, limit)`. The ID is kept; the window is re-ranged, not replaced.
+* Reject images. Only plain text files get windows.
+* `close(id)` closes one window. `close(filename)` works only when that file has exactly one window; otherwise it fails and lists the window IDs.
+
+### token accounting and compaction
+
+`estimateTokens` is re-exported from `@earendil-works/pi-coding-agent`, so no custom estimator is needed.
+
+* `blockTokens = estimateTokens(blockText)`, computed in the `context` handler that builds the block, and cached for the turn so `open()` can report it without re-estimating.
+* `contextTokens` comes from `ctx.getContextUsage()` (Pi's own estimate covers trailing messages).
+* `open()` gate: fail when `existing block + new window > (contextLimit - reserveTokens) * 2/3`.
+* Compaction is triggered by the extension from the `context` handler when `contextTokens + blockTokens + reserveTokens > contextLimit`, via `ctx.compact()`. Pi cannot see the block, so Pi's own checks will not fire in time.
+* Guard against a second compaction while one is running (`compacting` flag plus `ctx.isIdle()`). `ctx.compact()` does not await, so it will not deadlock, but a summariser call kicked off mid-flight must not stack.
+* Absolute cap in the block builder as well as the `open()` gate: if the block alone is huge, compacting the normal context cannot help, and shrinking windows is the only lever left. Truncate the window and say so in its header.
+
+### drift inside a window
+
+A window is a line range into the file's current state, nothing more. Each refresh re-reads those offsets from disk; nothing is shifted or tracked when the file changes, and edits do not move windows.
+
+If the file changed since the last refresh, say so in the window header:
+
+```
+W2  src/price.js  lines 500-549 of 2400 (file changed since last refresh)
+```
+
+No edit-event machinery. The model re-adjusts the window itself when the offsets no longer cover what it needs.
+
+### state lifetime
+
+Window state lives in memory only. `/resume`, `/tree` and fork drop the open windows silently. Accepted for this version; persisting window metadata as custom session entries is a later step if it turns out to matter.
+
+### compaction marker
+
+Standard compaction summarises away the earlier reads while the live-view block keeps silently refreshing, so the model can forget the block exists. After a compaction boundary, the next block carries one line saying an earlier read of these files may have been summarised away and the windows below are the live state. That removes the need for a custom compaction routine.
+
+### reporting size
+
+Put the cost in the block header and in every `open()` / `close()` result (window token count and its share of the working context). A visible price tag moves models towards closing windows more reliably than an instruction framing close() as a goal to accomplish.
+
+### general rules
 
 Do not introduce constraints that the current read tool doesn't have, unless it is absolutely necessary.
 
@@ -154,6 +195,8 @@ The open() tool should have the same size limits as read().  Same number of line
 
 At this point, do not introduce mechanics to try and 'force' a model to use the tool.
 
+do not place the extension file in the active extension folder yet.  create it in the project root.  
+
 ## next steps, implement later if needed (not now)
 
 ### strip output of previous read() calls when a file is 'opened'
@@ -162,9 +205,7 @@ This prevents duplicating file content.
 
 ### custom compaction routine
 
-Standard Compaction takes places without the compacting agent being aware of the live-view behavior.  It may be necessary to write a custom compaction routine that is aware that the live-view block will be restored.
-
-
+Standard Compaction takes places without the compacting agent being aware of the live-view behavior.  The compaction marker in the implementing notes covers the part that mattered (the model forgetting the block exists), so a custom routine is not needed unless compaction itself starts cutting into work we still need.
 
 ### the skills file
 
@@ -176,14 +217,6 @@ This means in theory a model could accomplish much more before compaction than i
 
 ## other notes
 
-The context cache thrashing issue is understood and acceptable.  This extension is aimed at local agents who could benefit from it the most, not externally provided models. 
+The context cache thrashing issue is understood and acceptable.  The block is re-prefilled on every turn, so for the 128k local runs the cost worth measuring is prefill time per turn, not only token count.  This extension is aimed at local agents who could benefit from it the most, not externally provided models. 
 
 This extension is NOT aimed at lower end models specifically.  The target models in development are qwen3.8:27b and qwen3.8-flash-next (which is 125b moe).  On my machine I can run either one with at least 128k of context window.  
-
-
-
-## questions
-
-### goal framing of close()
-
-would an instruction to close() a file when completed frame it as a goal to be accomplished, and more likely?  
