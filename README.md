@@ -116,7 +116,7 @@ There does need to be limits to avoid extremes where the live-view is too large 
 
 At the other end of the spectrum we don't want to get into a position where the live-view is too small to properly contain information relevant to the problem.  If that happens the model has no option but to operate blindly until its context is exhausted and a compaction happens.  
 
-I would propose a maximum live-view size of (contextLimit - reserveTokens) * 3/4 .  At that point any open() call should fail with a message to either close or reduce window sizes.  This also guarantees a minimum workable context available to the model.  
+I would propose a maximum live-view size of (contextLimit - reserveTokens) * 2/3 .  At that point any open() call should fail with a message to either close or reduce window sizes.  This also guarantees a minimum workable context available to the model.  
 
 I would also set a minimum live-view reserve size of (contextLimit - reserveTokens) * 1/3 .  This also defines the maximum normal context size at (contextLimit - reserveTokens) * 2/3 . 
 
@@ -124,7 +124,7 @@ I would also set a minimum live-view reserve size of (contextLimit - reserveToke
 
 open calls should fail with a warning to close windows or reduce their size if: 
 
-* the new window would extend the live-view beyond (contexLimit - reserveTokens)*3/4  
+* the new window would extend the live-view beyond (contexLimit - reserveTokens)*2/3  
 
 * the new window plus existing context exceeds contextLimit - reserveTokens. 
 
