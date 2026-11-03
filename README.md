@@ -1,10 +1,12 @@
 # live view file tool
 
-## The goal of this project is to give a model access to a live view of the current state of a file.
+### This extension gives a model a 'live view' of the current state of a file.
 
 In the normal flow of editing, a model reads a file which places it into the context.  Multiple edits may then be performed.  To construct the current view of the file the model must reconstruct the state from original + diffs.
 
 I'd like to introduce an 'open' tool, which has a similar signature to the 'read' tool except it simply returns 'open successful'.  The view of the file itself is added to a 'live view' block appended to the end of the session context.  This block is refreshed before any request is sent out, so the model always sees the current state of the file.
+
+This should reduce errors by making the current state clearer.  The model never has to reconstruct the current state. 
 
 Multiple views of the same file are allowed.  Each window has a unique ID number that is never assigned twice.  If they overlap, they should be merged into one view.
 
@@ -12,9 +14,13 @@ Edits are appended to the session context normally.
 
 The 'open' tool is otherwise identical to 'read', except that the view of the file or files is in the 'live view' block, which is dynamically refreshed before a request goes out.
 
+The model is free to choose either 'read' or 'open', but the tool description should clearly state that 'open' is the preferred method.
+
+
+
 There should also be a corresponding 'close' tool.  This returns a simple 'close <filename> successful.' (or something equivalent) and that 'window' to a file should be removed from the live-view block.  'close' should also work with window ID numbers, so that if multiple windows of the same file are open the model can specify.  
 
-The model is free to choose either 'read' or 'open', but the tool description should clearly state that 'open' is the preferred method.
+There is a secondary goal to see if a model can effectively 'close' files.  A 'read' file burns context permanently, while an 'open' file can be closed, and the its context is freed for other work.  
 
 
 
@@ -94,15 +100,15 @@ pi itself doesn't 'see' the live-view, so its own compaction checks won't fire i
 
 This means that in addition to generating the live-view block, the extension also has to estimate the total request size.
 
-The live view block should have a maximum size, and conversely the normal context a minimum size.  the live-view block maximum size should be context limit - minimum context (1/4 of contextLimit for example) - reserveTokens.  
+The live-view itself should have a maximum size of (contextLimit - reserveTokens) x 3/4 
 
-Beyond this maximum size it should truncate windows, but let the model know it cannot show more.  The model must close or resize windows.  (a resize is close() followed by open() with smaller parameters.) 
+Any calls to open() beyond that should fail with an instruction to either close windows, or reduce window sizes.  
 
-The truncation must be 'smart' enough to correctly state what is shown.  The model may have requested lines 1-100, but there is only room for 1-50, the live view should reflect that and state the live-view is full.  It should NOT blindly truncate a live-view block.  
+As for the normal context, this will need standard compaction, but it must be triggered by the extension when context + live-view + reserveTokens > contextLimit .  
 
-The normal context can be handled by standard compaction, but the compaction itself has to be triggered by the extension.  So instead of the normal **context + reserveTokens > contextLimit** check, we would have  **context + live-view + reserveTokens > contextLimit**
 
-This allows the model to use all the context available to it if the live-view is small, and also maintains a minimum working context if the live-view gets large.  
+
+
 
 ## implementing notes
 
@@ -126,4 +132,4 @@ Standard Compaction takes places without the compacting agent being aware of the
 
 ## other notes
 
-The context cache thrashing issue is understood and acceptable.  This extension is primarily aimed at local agents who could benefit from it the most, not frontier models.
+The context cache thrashing issue is understood and acceptable.  This extension is aimed at local agents who could benefit from it the most, not frontier models.  
