@@ -4,25 +4,29 @@
 
 In the normal flow of editing, a model reads a file which places it into the context.  Multiple edits may then be performed.  To construct the current view of the file the model must reconstruct the state from original + diffs.
 
-I'd like to introduce an 'open' tool, which has a similar signature to the 'read' tool except it simply returns 'open successful'.  The view of the file itself is added to a 'live view' block appended to the end of the session context.  This block is refreshed before any request is sent out, so the model always sees the current state of the file.
+I'd like to introduce an open() tool, which has a similar signature to the read() tool except it simply returns 'open successful - live-view window N '.  The view of the file itself is added to a 'live view' block appended to the end of the session context.  
 
-This should reduce errors by making the current state clearer.  The model never has to reconstruct the current state. 
+In that sense it is very similar to the read() tool, except file contents are placed in the live-view block, not the context itself.  
 
-Multiple views of the same file are allowed.  Each window has a unique ID number that is never assigned twice.  If they overlap, they should be merged into one view.
+This block is refreshed before any request is sent out, so the model always sees the current state of the file.
+
+This should reduce errors by making the current state clearer.  The model never has to reconstruct the current state from original + diffs.  
+
+Multiple views of the same file are allowed.  Each window has a unique ID number that is never assigned twice.  
+
+open() can also be called on existing windows with different parameters, to shrink, expand, or change offset.  
+
+open() should maintain pi's default limits on opening, 2000 lines or 50kb, whichever is first.  
+
+The open() tool is otherwise identical to read(), except that the view of the file or files is in the 'live view' block, which is dynamically refreshed before a request goes out.
+
+The model is free to choose either read() or open(), but the tool description should clearly state that open() is the preferred method.
 
 Edits are appended to the session context normally.
 
-The 'open' tool is otherwise identical to 'read', except that the view of the file or files is in the 'live view' block, which is dynamically refreshed before a request goes out.
+There should also be a corresponding close() tool.  This returns a simple 'close <filename> successful.' (or something equivalent) and that 'window' to a file should be removed from the live-view block.  close() should also work with window ID numbers, so that if multiple windows of the same file are open the model can specify.  
 
-The model is free to choose either 'read' or 'open', but the tool description should clearly state that 'open' is the preferred method.
-
-
-
-There should also be a corresponding 'close' tool.  This returns a simple 'close <filename> successful.' (or something equivalent) and that 'window' to a file should be removed from the live-view block.  'close' should also work with window ID numbers, so that if multiple windows of the same file are open the model can specify.  
-
-There is a secondary goal to see if a model can effectively 'close' files.  A 'read' file burns context permanently, while an 'open' file can be closed, and the its context is freed for other work.  
-
-
+There is a secondary goal to see if a model can effectively close() files.  A read() file burns context permanently, while an open() file can be closed, and the its context is freed for other work.  
 
 ## the live view block
 
@@ -40,7 +44,9 @@ Each 'window' needs an ID number.  There should be a counter that only increment
 
 * total length
 
-Two windows can exist in the same file.  If they overlap, they should be merged into one window.
+Two windows can exist in the same file.  Windows can be referred to by window ID, or filename if only 1 window is open for a file.  
+
+
 
 Each window in the live-view block needs:
 
@@ -90,21 +96,49 @@ A sample view is below:
 
 *This can be mechanically handled in the case of edit events, and we'll just accept the model must re-adjust the window manually in other cases. What do you think?*
 
+
+
+
+
 ### Content formatting and line numbering
 
 Code lines inside each hunk are rendered as raw text without per-line number prefixes (e.g., without `10 | ` or `10: `). This keeps whitespace and characters identical to disk so exact-match search and replace (`Target` / `Replacement`) can be copied directly without line-number prefix leakage or indentation mismatch errors. Line range context is provided solely by the hunk headers.
 
-### compaction behavior
+### context management
 
 pi itself doesn't 'see' the live-view, so its own compaction checks won't fire in time.  Because of this the extension will need to do some management itself.
 
-This means that in addition to generating the live-view block, the extension also has to estimate the total request size.
+The two components of the request are the normal context, and the live-view block.  
 
-The live-view itself should have a maximum size of (contextLimit - reserveTokens) x 3/4 
+The normal context can be compacted, but the live-view cannot.  However, the live-view block can be reduced at any time by the model closing files or reducing the size of open windows.  (open() can be called again with smaller window parameters)
 
-Any calls to open() beyond that should fail with an instruction to either close windows, or reduce window sizes.  
+There does need to be limits to avoid extremes where the live-view is too large and there is no working context.  That would leave the model in a state where there is not enough to compact, and not enough context for the model to manage the live-view itself.  
 
-As for the normal context, this will need standard compaction, but it must be triggered by the extension when context + live-view + reserveTokens > contextLimit .  
+At the other end of the spectrum we don't want to get into a position where the live-view is too small to properly contain information relevant to the problem.  If that happens the model has no option but to operate blindly until its context is exhausted and a compaction happens.  
+
+I would propose a maximum live-view size of (contextLimit - reserveTokens) * 3/4 .  At that point any open() call should fail with a message to either close or reduce window sizes.  This also guarantees a minimum workable context available to the model.  
+
+I would also set a minimum live-view reserve size of (contextLimit - reserveTokens) * 1/3 .  This also defines the maximum normal context size at (contextLimit - reserveTokens) * 2/3 . 
+
+
+
+open calls should fail with a warning to close windows or reduce their size if: 
+
+* the new window would extend the live-view beyond (contexLimit - reserveTokens)*3/4  
+
+* the new window plus existing context exceeds contextLimit - reserveTokens. 
+
+
+
+The warning itself should state that context is limited, and suggest possible actions.  It should also mention that not reducing the window will result in earlier compaction.  
+
+
+
+Compaction of the normal context should be triggered when: 
+
+* the normal context exceeds (contextLimit - reserveTokens) * 2/3 
+
+* context + live-view size + reserveTokens > contextLimit 
 
 
 
@@ -114,15 +148,15 @@ As for the normal context, this will need standard compaction, but it must be tr
 
 Do not introduce constraints that the current read tool doesn't have, unless it is absolutely necessary.
 
-Keep the code as simple as possible, do not add guardrails that are not currently present in the read tool.  For example, a model can 'read' until its context is exhausted.  It should be able to 'open' files until its context is exhausted.
+Keep the code as simple as possible, do not add guardrails that are not currently present in the read tool.  For example, a model can read() until its context is exhausted.  It should be able to open() files until its context is exhausted.
 
-The 'open' tool should have the same size limits as 'read'.  Same number of lines or bytes returned in one call.  The model is free to make multiple calls, just as it can with 'read'.
+The open() tool should have the same size limits as read().  Same number of lines or bytes returned in one call.  The model is free to make multiple calls, just as it can with read().
 
 At this point, do not introduce mechanics to try and 'force' a model to use the tool.
 
 ## next steps, implement later if needed (not now)
 
-### strip output of previous 'read' calls when a file is 'opened'
+### strip output of previous read() calls when a file is 'opened'
 
 This prevents duplicating file content.
 
@@ -130,6 +164,26 @@ This prevents duplicating file content.
 
 Standard Compaction takes places without the compacting agent being aware of the live-view behavior.  It may be necessary to write a custom compaction routine that is aware that the live-view block will be restored.
 
+
+
+### the skills file
+
+A skills file explaining how open() can be much better than read() would be useful.  When a file is read() it is burned into context forever.  An open() file can be 'closed', which releases context.  This means a model could search a volume greater than the context window would normally allow.  
+
+The other behavior that is possible is to close() a completed file. (or just shrink its window.)  If a model has finished boilerplate for example, and is unlikely to touch that file again, it can be closed.  
+
+This means in theory a model could accomplish much more before compaction than it normally would.  
+
 ## other notes
 
-The context cache thrashing issue is understood and acceptable.  This extension is aimed at local agents who could benefit from it the most, not frontier models.  
+The context cache thrashing issue is understood and acceptable.  This extension is aimed at local agents who could benefit from it the most, not externally provided models. 
+
+This extension is NOT aimed at lower end models specifically.  The target models in development are qwen3.8:27b and qwen3.8-flash-next (which is 125b moe).  On my machine I can run either one with at least 128k of context window.  
+
+
+
+## questions
+
+### goal framing of close()
+
+would an instruction to close() a file when completed frame it as a goal to be accomplished, and more likely?  
