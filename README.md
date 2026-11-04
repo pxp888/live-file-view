@@ -24,8 +24,6 @@ These two behaviors could enable a model to accomplish much more work between co
 
 Again, the tool calls still live in session so the model knows it opened, edited, and closed the file.  
 
-
-
 Design rationale is in [`design.md`](./design.md); the implementation is a single file, [`liveview.ts`](./liveview.ts).
 
 ## Run it
@@ -123,8 +121,6 @@ The model re-adjusts the range when the offsets no longer cover what it needs.
 * The block is re-prefilled every request, so on large local contexts (this is aimed at qwen3.8:27b / qwen3.8-flash-next with 128k+) prefill time per turn is a real cost, not only token count.
 * Standard compaction summarises away earlier reads while windows keep refreshing; the first block after a compaction boundary carries a one-line marker saying an earlier read may have been summarised away.
 * Not implemented yet, by design: stripping earlier `read()` results for opened files, a custom compaction routine, and any mechanism that forces the model to use `open()` over `read()`.
-
-
 
 ## Costs and penalties
 
