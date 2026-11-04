@@ -157,8 +157,9 @@ The block is appended as a single trailing `system` message, after the newest to
 * `blockTokens = estimateTokens(blockText)`, computed in the `context` handler that builds the block, and cached for the turn so `open()` can report it without re-estimating.
 * `contextTokens` comes from `ctx.getContextUsage()` (Pi's own estimate covers trailing messages).
 * `open()` gate: fail when `existing block + new window > (contextLimit - reserveTokens) * 2/3`.
-* Compaction is triggered by the extension from the `context` handler when `contextTokens + blockTokens + reserveTokens > contextLimit`, via `ctx.compact()`. Pi cannot see the block, so Pi's own checks will not fire in time.
-* Guard against a second compaction while one is running (`compacting` flag plus `ctx.isIdle()`). `ctx.compact()` does not await, so it will not deadlock, but a summariser call kicked off mid-flight must not stack.
+* Compaction is triggered by the extension from `agent_settled` when `contextTokens + blockTokens + reserveTokens > contextLimit`, via `ctx.compact()`. Pi cannot see the block, so Pi's own checks will not fire in time.
+* Not from the `context` handler: `ctx.compact()` is Pi's manual entry point, and it aborts the agent operation it is called during without retrying the turn (`AgentSession.compact()` starts with `await this.abort()`). `agent_settled` fires after the run is marked inactive, so `ctx.isIdle()` is true and nothing in flight is lost.
+* Guard against a second compaction while one is running (`compacting` flag plus `ctx.isIdle()`). `ctx.compact()` does not await, so it will not deadlock, but a summariser call kicked off mid-flight must not stack. In single-shot print mode Pi disposes the runtime as soon as the prompt returns, so a settle-time compaction can be cut off there; in interactive/RPC use it completes.
 * Absolute cap in the block builder as well as the `open()` gate: if the block alone is huge, compacting the normal context cannot help, and shrinking windows is the only lever left. Truncate the window and say so in its header.
 
 ### drift inside a window

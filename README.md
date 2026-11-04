@@ -97,9 +97,10 @@ With `reserveTokens` from pi's compaction settings (16384 by default) and `worki
 | Rule                      | Threshold                                                     |
 | ------------------------- | ------------------------------------------------------------- |
 | Max live view             | `working * 2/3` — `open()` fails above it                     |
-| Max normal context        | `working * 2/3` — past it, compaction is triggered            |
-| Compaction also triggers  | `contextTokens + blockTokens + reserveTokens > contextWindow` |
+| Compaction triggers       | `contextTokens + blockTokens + reserveTokens > contextWindow`  |
 | Minimum live-view reserve | `working * 1/3`                                               |
+
+Compaction is requested from `agent_settled`, once the run has settled. It is deliberately not requested from the `context` handler: `ctx.compact()` is pi's manual compaction entry point, which aborts the agent operation it is called during and never resumes that turn.
 
 Rejected `open()` calls explain the sizes involved and suggest `close()` or shrinking a window (`open(windowId, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
 

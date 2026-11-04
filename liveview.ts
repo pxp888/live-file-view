@@ -188,21 +188,30 @@ export default function (pi: ExtensionAPI) {
 		const block = await buildBlock(ctx);
 		if (!block) return undefined;
 
+		return { messages: [...event.messages, block.message] };
+	});
+
+	// Compaction is requested only once the run has settled: ctx.compact() is Pi's manual
+	// entry point, which aborts the agent operation it is called during and never resumes it.
+	// agent_settled fires after the run is marked inactive, so nothing in flight is lost.
+	// The live view block is not a session entry, so Pi's own threshold check cannot see it:
+	// this is the block-aware nudge that compacts history instead of shrinking the block.
+	pi.on("agent_settled", (_event, ctx) => {
+		if (windows.length === 0 || compacting || !ctx.isIdle()) return;
+
 		const b = budget(ctx);
 		const contextTokens = ctx.getContextUsage()?.tokens ?? 0;
-		if (!compacting && !ctx.isIdle() && (contextTokens > b.maxLive || contextTokens + blockTokens + RESERVE_TOKENS > b.contextWindow)) {
-			compacting = true;
-			ctx.compact({
-				onComplete: () => {
-					compacting = false;
-				},
-				onError: () => {
-					compacting = false;
-				},
-			});
-		}
+		if (contextTokens + blockTokens + RESERVE_TOKENS <= b.contextWindow) return;
 
-		return { messages: [...event.messages, block.message] };
+		compacting = true;
+		ctx.compact({
+			onComplete: () => {
+				compacting = false;
+			},
+			onError: () => {
+				compacting = false;
+			},
+		});
 	});
 
 	pi.registerTool({
