@@ -23,7 +23,7 @@ close(windowId)                  close one window
 close(path)                      closes it, only if that file has exactly one window
 ```
 
-* `open()` returns a confirmation and the range shown — **never the contents**. The contents arrive in the live-view block of the next request.
+* `open()` returns a confirmation and the range shown — **never the contents**. The contents are already in your context when you read that confirmation: the LIVE VIEW block sits directly after the tool result.
 * Same limits as `read()`: 2000 lines or 50KB, whichever comes first. Use `offset`/`limit` for big files.
 * Window ids are never reused. Two windows on one file are fine (`W1` lines 10-50, `W2` lines 500-560).
 * Window contents are raw text with no line-number prefixes — copy them verbatim into `edit` search strings.
@@ -45,7 +45,7 @@ Searching normally costs context for every file you look at. With open/close a f
 
 ```
 open("src/loaders/csv.js")      -> W3 confirmation only
-   (next request shows W3 contents in the LIVE VIEW block)
+   (W3 contents are in the LIVE VIEW block, right after that tool result)
    ...judge it: not the right place...
 close(3)                        -> freed ~4100 tokens
 ```

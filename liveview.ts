@@ -311,7 +311,7 @@ export default function (pi: ExtensionAPI) {
 							`open successful - live-view window ${w.id}`,
 							`${w.label}  ${range(info.startLine, info.endLine, info.total)}`,
 							`window ~${windowTokens} tokens · ${sizeReport(b)}`,
-							"The file contents are in the LIVE VIEW block of the next request; you do not need to read this file again.",
+							"The file contents are already in your context: the LIVE VIEW block follows this tool result. You do not need to read this file again.",
 						].join("\n"),
 					},
 				],

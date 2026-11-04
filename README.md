@@ -54,7 +54,7 @@ open("src/price.js", 10, 40)   -> open successful - live-view window 1
 open(1, 500, 50)               -> re-ranges W1 in place, keeping its id
 ```
 
-* Returns a **confirmation only** — window id and the range now shown, never file contents. The contents arrive in the live-view block of the next request.
+* Returns a **confirmation only** — window id and the range now shown, never file contents. The contents are already in context when the model reads that confirmation: the block is built at the request boundary, so it lands directly after the tool result in the same request.
 * A different range of the same file is a **new window with a new id**. Ids come from a counter that only increments, so they are never reused.
 * Multiple windows per file are allowed. Re-ranging requires the window id.
 * Plain text files only; a file containing a NUL byte is rejected.
