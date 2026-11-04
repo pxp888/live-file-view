@@ -4,6 +4,24 @@ A [pi](https://github.com/earendil-works/pi) coding-agent extension that gives t
 
 Instead of `read()` burning a file snapshot permanently into the conversation, `open()` keeps a *window* on the file. The contents of every open window are re-read from disk before each request and appended to a `LIVE VIEW` block at the end of the prompt, so the model always sees the file as it is now — no rebuilding state from an old read plus edit diffs. `close()` releases the window and its context.
 
+### constant current state
+
+The immediate benefit is that models do not have to reconstruct the current state of a file from original state + diffs.  This should immediately reduce the 'mental math' required of the model.  
+
+In addition, the close() command allows a model to release file contents from its context.  There are two behaviors this makes possible that can greatly enhance what a model can do.  
+
+### search and dismiss
+
+The first is search without context burn.  Normally when a model opens a file looking for something that file is held in context until a compaction event.  open() and close() allow a model to look at a flie, decide it doesn't have what is needed, and close it again without burning context.  A model could search through more information than what fits in its context window.  
+
+### close on completion
+
+The second possible benefit would be close on completion.  If a model has finished writing boilerplate files for example, they can be closed and their context freed for other work.  
+
+These two behaviors could enable a model to accomplish much more work between compaction events than is normally possible.  
+
+
+
 Design rationale is in [`design.md`](./design.md); the implementation is a single file, [`liveview.ts`](./liveview.ts).
 
 ## Run it
@@ -65,12 +83,12 @@ pi cannot see the block, so its own compaction checks would not fire in time —
 
 With `reserveTokens` from pi's compaction settings (16384 by default) and `working = contextWindow - reserveTokens`:
 
-| Rule | Threshold |
-|---|---|
-| Max live view | `working * 2/3` — `open()` fails above it |
-| Max normal context | `working * 2/3` — past it, compaction is triggered |
-| Compaction also triggers | `contextTokens + blockTokens + reserveTokens > contextWindow` |
-| Minimum live-view reserve | `working * 1/3` |
+| Rule                      | Threshold                                                     |
+| ------------------------- | ------------------------------------------------------------- |
+| Max live view             | `working * 2/3` — `open()` fails above it                     |
+| Max normal context        | `working * 2/3` — past it, compaction is triggered            |
+| Compaction also triggers  | `contextTokens + blockTokens + reserveTokens > contextWindow` |
+| Minimum live-view reserve | `working * 1/3`                                               |
 
 Rejected `open()` calls explain the sizes involved and suggest `close()` or shrinking a window (`open(window, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
 
@@ -92,3 +110,11 @@ The model re-adjusts the range when the offsets no longer cover what it needs.
 * The block is re-prefilled every request, so on large local contexts (this is aimed at qwen3.8:27b / qwen3.8-flash-next with 128k+) prefill time per turn is a real cost, not only token count.
 * Standard compaction summarises away earlier reads while windows keep refreshing; the first block after a compaction boundary carries a one-line marker saying an earlier read may have been summarised away.
 * Not implemented yet, by design: stripping earlier `read()` results for opened files, a custom compaction routine, a skills file, and any mechanism that forces the model to use `open()` over `read()`.
+
+
+
+## Costs and penalties
+
+The live-view block is dynamic and regenerated at each request so it is never cached.  It is at the tail of the session, so the session itself is cached, but for online providers this will increase the costs significantly.  
+
+This extension is targeted at local inference where this is not too much of an issue.  
