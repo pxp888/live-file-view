@@ -230,9 +230,25 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let w: LiveWindow | undefined;
+			let index = -1;
+			// A re-range replaces its window in the block, so park it out of `windows` while
+			// measuring: the gate then sees the block as it would be afterwards, with the new
+			// range counted once. Any failure below restores the window and its old range.
+			let restore = () => {};
+			const bail = (text: string) => {
+				restore();
+				return fail(text);
+			};
 			if (params.window !== undefined) {
-				w = windows.find((x) => x.id === params.window);
-				if (!w) return fail(`no window ${params.window}. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}`);
+				index = windows.findIndex((x) => x.id === params.window);
+				if (index < 0) return fail(`no window ${params.window}. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}`);
+				w = windows[index];
+				const prev = { ...w };
+				windows.splice(index, 1);
+				restore = () => {
+					Object.assign(w, prev);
+					windows.splice(index, 0, w);
+				};
 				if (params.path) w.label = displayPath((w.path = resolve(ctx.cwd, params.path)), ctx.cwd);
 				w.offset = Math.max(1, params.offset ?? w.offset);
 				w.limit = Math.min(DEFAULT_MAX_LINES, Math.max(1, params.limit ?? w.limit));
@@ -252,26 +268,27 @@ export default function (pi: ExtensionAPI) {
 			try {
 				info = await readWindow(w);
 			} catch (error) {
-				return fail(`open failed: ${(error as Error).message}`);
+				return bail(`open failed: ${(error as Error).message}`);
 			}
-			if (info.empty) return fail(`open failed: offset ${w.offset} is beyond end of ${w.label} (${info.total} lines total).`);
+			if (info.empty) return bail(`open failed: offset ${w.offset} is beyond end of ${w.label} (${info.total} lines total).`);
 
 			// Gate: the window must fit the live-view cap and leave a working context.
 			const existing = (await buildBlock(ctx, false))?.tokens ?? 0;
 			const windowTokens = tok(`${head(w, info.startLine, info.endLine, info.total, [])}\n${info.text}`);
 			if (existing + windowTokens > b.maxLive) {
-				return fail(
+				return bail(
 					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap ((context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3). Close windows with close(), or shrink them with open(window, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
 				);
 			}
 			const contextTokens = ctx.getContextUsage()?.tokens ?? 0;
 			if (contextTokens + existing + windowTokens + RESERVE_TOKENS > b.contextWindow) {
-				return fail(
+				return bail(
 					`open failed: context (~${contextTokens}) + live view (~${existing + windowTokens}) + ${RESERVE_TOKENS} reserve exceeds the ${b.contextWindow} token context window. Close windows with close(), shrink them with open(window, offset, limit), or let the conversation compact first.`,
 				);
 			}
 
-			if (params.window === undefined) windows.push(w);
+			if (index >= 0) windows.splice(index, 0, w);
+			else windows.push(w);
 			w.statKey = info.statKey;
 			const block = await buildBlock(ctx);
 			blockTokens = block?.tokens ?? 0;
