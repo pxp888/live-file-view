@@ -11,7 +11,9 @@ Use these whenever `open` / `close` appear in your tool list. They replace `read
 
 `read()` burns a snapshot of a file into the conversation permanently. `open()` creates a **window** on the file: the contents are re-read from disk before every request and appended to a `LIVE VIEW` block at the end of the prompt. You always see the file as it is **now**.
 
-**You never reconstruct a file from an earlier read plus edit diffs.** After an edit, do not re-read and do not compute the new state in your head — the next live-view block already contains it.
+* `open()` returns a confirmation receipt only; the actual file contents are appended to the `<<<<LIVE VIEW>>>>` block at the end of your prompt in the exact same turn.
+* **Never call `read()` after `open()`** — the file contents are already in your context.
+* **You never reconstruct a file from an earlier read plus edit diffs.** After an edit, do not re-read and do not compute the new state in your head — the next live-view block already contains it.
 
 ## Tool signatures
 
@@ -83,14 +85,16 @@ This is what lets you do much more work between compaction events: the context h
 
 The live view shares the context window with the conversation and is capped at 2/3 of the working space:
 
-* `open()` fails when the next window would exceed the cap or the whole context. The error tells you the sizes; act on it by `close()`ing or shrinking windows.
+* `open()` fails when the next window would exceed the cap or the whole context. The error provides a ranked list of open windows sorted by token weight, pointing out the best candidates to `close()`.
 * Every `open()` / `close()` result reports token cost and the live view's share of the working context — treat that number as the price of the window.
 * A large live view forces compaction of the conversation sooner — that is the real cost of keeping windows, and the reason to release finished ones.
 * The cap is the trigger, not a threat: when `open()` refuses, or a header reports `truncated to fit the live-view budget`, that is the moment to close or shrink. Act on it then, not before.
 
 ## Use open(), not read()
 
-`read()` costs context until a compaction event. open() should be preferred when possible.  
+Whenever the user asks to inspect, view, examine, review, check, or edit a workspace file, **always use `open()`, never `read()`**.
+
+`read()` costs context permanently until a compaction event. `open()` keeps a dynamic window and allows clean release with `close()`.
 
 `read()` remains for two cases only:
 

@@ -12,7 +12,7 @@ In addition, the close() command allows a model to release file contents from it
 
 ### search and dismiss
 
-The first is search without context burn.  Normally when a model opens a file looking for something that file is held in context until a compaction event.  open() and close() allow a model to look at a flie, decide it doesn't have what is needed, and close it again without burning context.  A model could search through more information than what fits in its context window.  
+The first is search without context burn.  Normally when a model opens a file looking for something that file is held in context until a compaction event.  open() and close() allow a model to look at a file, decide it doesn't have what is needed, and close it again without burning context.  A model could search through more information than what fits in its context window.  
 
 The tool calls themselves stay in session so the model can see open(file A), any thoughts or notes it may have had, and close(file A).  But it doesn't need to see the actual file anymore.  
 
@@ -41,8 +41,6 @@ The final paths should look like:
     project_folder/.pi/skills/liveview/SKILL.md
     project_folder/.pi/extensions/liveview/index.ts
 
-
-
 # Tools
 
 ### `open(path, offset, limit)`
@@ -50,18 +48,18 @@ The final paths should look like:
 Opens a new window, or re-ranges an existing one. Same parameter shape and same limits as `read()`: 1-based `offset`, `limit` in lines, 2000 lines or 50KB, whichever comes first.
 
 ```
-open("src/price.js", 10, 40)   -> open successful - live-view window 1
-open(1, 500, 50)               -> re-ranges W1 in place, keeping its id
+open("src/price.js", 10, 40)   -> open successful - live-view window blue-fox
+open("blue-fox", 500, 50)      -> re-ranges blue-fox in place, keeping its id
 ```
 
 * Returns a **confirmation only** — window id and the range now shown, never file contents. The contents are already in context when the model reads that confirmation: the block is built at the request boundary, so it lands directly after the tool result in the same request.
-* A different range of the same file is a **new window with a new id**. Ids come from a counter that only increments, so they are never reused.
+* A different range of the same file is a **new window with a new id**. Window ids are non-ordered color-noun handles (e.g. `blue-fox`).
 * Multiple windows per file are allowed. Re-ranging requires the window id.
 * Plain text files only; a file containing a NUL byte is rejected.
 
 ### `close(windowId | path)`
 
-`close(2)` closes window W2. `close("src/price.js")` works only when that file has exactly one window — otherwise it fails and lists the ids. Reports how many tokens it freed.
+`close("blue-fox")` closes window `blue-fox`. `close("src/price.js")` works only when that file has exactly one window — otherwise it fails and lists the ids. Reports how many tokens it freed.
 
 ## The live-view block
 
@@ -74,14 +72,14 @@ as it is NOW: use it in place of any earlier read of that file in this conversat
 and in place of rebuilding it from edit diffs.
 
 3 windows · 2070 lines shown · this block is 62% of the space left in this context
-  W1  src/price.js   lines 10-39 of 2400
-  W2  src/price.js   lines 500-549 of 2400
-  W3  src/parse.js   lines 1-1620 of 4300
+  blue-fox      src/price.js   lines 10-39 of 2400
+  amber-otter   src/price.js   lines 500-549 of 2400
+  slate-badger  src/parse.js   lines 1-1620 of 4300
 
-<<< W1  src/price.js  lines 10-39 of 2400 >>>
+<<< blue-fox  src/price.js  lines 10-39 of 2400 >>>
 import { RATE } from "./constants";
 ...
-<<</W1>>>
+<<</blue-fox>>>
 
 <<<<END LIVE VIEW>>>>
 ```
@@ -102,7 +100,7 @@ With `reserveTokens` from pi's compaction settings (16384 by default) and `worki
 
 Compaction is requested from `agent_settled`, once the run has settled. It is deliberately not requested from the `context` handler: `ctx.compact()` is pi's manual compaction entry point, which aborts the agent operation it is called during and never resumes that turn.
 
-Rejected `open()` calls explain the sizes involved and suggest `close()` or shrinking a window (`open(windowId, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
+Rejected `open()` calls explain the sizes involved and provide a ranked list of open windows sorted by token weight, recommending the best candidates to `close()` or shrink (`open(windowId, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
 
 Every `open()` / `close()` result reports the window's token cost and the live view's share of the working context.
 
@@ -111,7 +109,7 @@ Every `open()` / `close()` result reports the window's token cost and the live v
 A window is just a line range into the file's current state. Refresh re-reads those offsets; edits never shift windows and there is no edit-event machinery. If the file changed since the last refresh the header says so:
 
 ```
-<<< W2  src/price.js  lines 500-549 of 2400 (file changed since last refresh) >>>
+<<< amber-otter  src/price.js  lines 500-549 of 2400 (file changed since last refresh) >>>
 ```
 
 The model re-adjusts the range when the offsets no longer cover what it needs.
@@ -128,3 +126,13 @@ The model re-adjusts the range when the offsets no longer cover what it needs.
 The live-view block is dynamic and regenerated at each request so it is never cached.  It is at the tail of the session, so the session itself is cached, but for online providers this will increase the costs significantly.  
 
 This extension is targeted at local inference where this is not too much of an issue.  
+
+
+
+## Initial test results
+
+Initial (quick) test results are [here](initial_test.md)
+
+This was a very quick initial test. None of the models were tested to the point of compaction. This was just to see if they understood and worked with the concept of live-view windows. Much more rigorous testing is needed, but initial results look very promising.
+
+There is a reasoning floor required, but 4 of the 5 models initially tested seemed to work just fine with the live-view window.  Only nemotron 3.5 lightning got confused by the concept and immediately fell back to read().  This seems to be an architecture related issue.  Spark x2.6, which is only a 4B model didn't have an issue, while nemotron at 30B did.  

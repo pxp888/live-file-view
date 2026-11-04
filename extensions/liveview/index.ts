@@ -190,6 +190,33 @@ function sizeReport(b: ReturnType<typeof budget>) {
 	return `live view ~${blockTokens} tokens, cap ${b.maxLive} (2/3 of the ${b.working} token working space)`;
 }
 
+async function getRankedWindows(ctx: ExtensionContext) {
+	const list: Array<{ id: string; label: string; tokens: number; lines: string }> = [];
+	for (const w of windows) {
+		try {
+			const info = await readWindow(w);
+			const chunk = `${head(w, info.startLine, info.endLine, info.total, [])}\n${info.text}\n<<</${w.id}>>>`;
+			list.push({
+				id: w.id,
+				label: w.label,
+				tokens: tok(chunk),
+				lines: range(info.startLine, info.endLine, info.total),
+			});
+		} catch {
+			list.push({ id: w.id, label: w.label, tokens: 0, lines: "unreadable" });
+		}
+	}
+	return list.sort((a, b) => b.tokens - a.tokens);
+}
+
+function formatRankedList(ranked: Array<{ id: string; label: string; tokens: number; lines: string }>): string {
+	if (ranked.length === 0) return "";
+	return (
+		"\nRecommended candidates to close (ranked largest first):\n" +
+		ranked.map((r, i) => `  ${i + 1}. close("${r.id}") — ${r.label} (~${r.tokens} tokens, ${r.lines})`).join("\n")
+	);
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", () => {
 		windows.length = 0;
@@ -242,11 +269,12 @@ export default function (pi: ExtensionAPI) {
 		name: "open",
 		label: "open",
 		description:
-			`Open a live window on a text file. Preferred over read(): the window is NOT written into the conversation, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now, with no rebuilding from earlier reads or edit diffs. open(path, offset, limit) opens a new window; open(windowId, offset, limit) re-ranges an existing window, keeping its id. Returns a confirmation only (window id and range), never file contents. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
+			`Inspect, view, examine, review, or edit a text file via a live window. Preferred over read() for all workspace text files: the window is NOT written into the conversation history, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now with no rebuilding from diffs. open(path, offset, limit) opens a new window; open(windowId, offset, limit) re-ranges an existing window, keeping its id. Returns a confirmation only (window id and range), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
 		promptSnippet: "Open a live-view window on a file (refreshed on every request)",
 		promptGuidelines: [
-			"Prefer open over read for any file you will edit or re-check: open() keeps a live copy of the file in the LIVE VIEW block instead of burning context, and close() releases it.",
-			"Close or shrink open() windows when you no longer need them; the live view is capped and oversized windows force compaction.",
+			"Always prefer open() over read() for any text file you want to inspect, view, review, check, or edit. Do NOT call read() on text files in the workspace.",
+			"open() returns an acknowledgement receipt; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Do NOT call read() after open().",
+			"Keep windows open while actively working with or referencing files. When a file is no longer needed, close(windowId) it to free context space.",
 		],
 		parameters: Type.Object({
 			path: Type.Optional(Type.String({ description: "File to open (relative or absolute). Omit when re-ranging an existing window." })),
@@ -310,14 +338,16 @@ export default function (pi: ExtensionAPI) {
 			const existing = (await buildBlock(ctx, false))?.tokens ?? 0;
 			const windowTokens = tok(`${head(w, info.startLine, info.endLine, info.total, [])}\n${info.text}`);
 			if (existing + windowTokens > b.maxLive) {
+				const ranked = await getRankedWindows(ctx);
 				return bail(
-					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap ((context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3). Close windows with close(), or shrink them with open(windowId, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
+					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap ((context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3).${formatRankedList(ranked)}\nClose windows with close(windowId), or shrink them with open(windowId, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
 				);
 			}
 			const contextTokens = ctx.getContextUsage()?.tokens ?? 0;
 			if (contextTokens + existing + windowTokens + RESERVE_TOKENS > b.contextWindow) {
+				const ranked = await getRankedWindows(ctx);
 				return bail(
-					`open failed: context (~${contextTokens}) + live view (~${existing + windowTokens}) + ${RESERVE_TOKENS} reserve exceeds the ${b.contextWindow} token context window. Close windows with close(), shrink them with open(windowId, offset, limit), or let the conversation compact first.`,
+					`open failed: context (~${contextTokens}) + live view (~${existing + windowTokens}) + ${RESERVE_TOKENS} reserve exceeds the ${b.contextWindow} token context window.${formatRankedList(ranked)}\nClose windows with close(windowId), shrink them with open(windowId, offset, limit), or let the conversation compact first.`,
 				);
 			}
 
@@ -327,6 +357,11 @@ export default function (pi: ExtensionAPI) {
 			const block = await buildBlock(ctx);
 			blockTokens = block?.tokens ?? 0;
 
+			const percentOfCap = Math.round((blockTokens / b.maxLive) * 100);
+			const pressureWarning = percentOfCap >= 75
+				? `\nNotice: Live view is utilizing ${percentOfCap}% of cap (~${blockTokens}/${b.maxLive} tokens). Consider closing windows you have finished inspecting.`
+				: "";
+
 			return {
 				content: [
 					{
@@ -334,7 +369,7 @@ export default function (pi: ExtensionAPI) {
 						text: [
 							`open successful - live-view window ${w.id}`,
 							`${w.label}  ${range(info.startLine, info.endLine, info.total)}`,
-							`window ~${windowTokens} tokens · ${sizeReport(b)}`,
+							`window ~${windowTokens} tokens · ${sizeReport(b)}${pressureWarning}`,
 							"The file contents are already in your context: the LIVE VIEW block follows this tool result. You do not need to read this file again.",
 						].join("\n"),
 					},
@@ -348,8 +383,11 @@ export default function (pi: ExtensionAPI) {
 		name: "close",
 		label: "close",
 		description:
-			"Close a live view window created by open(): it is removed from the LIVE VIEW block and its space in the context is freed. close(windowId) closes one window by id; close(path) works only when that file has exactly one window.",
+			"Close a live view window created by open(): it is removed from the LIVE VIEW block and its space in the context is freed. close(windowId) closes one window by id (e.g. 'blue-fox'); close(path) works only when that file has exactly one window.",
 		promptSnippet: "Close a live-view window and free its context",
+		promptGuidelines: [
+			"Call close(windowId) when you are finished inspecting or editing a file to release it from context and avoid context pressure.",
+		],
 		parameters: Type.Object({
 			windowId: Type.Optional(Type.String({ description: "Window id (e.g. 'blue-fox') to close" })),
 			path: Type.Optional(Type.String({ description: "File whose single open window to close (relative or absolute)" })),
