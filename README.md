@@ -1,5 +1,7 @@
 # liveview
 
+![live-view image](live-view.jpg)
+
 A [pi](https://github.com/earendil-works/pi) coding-agent extension that gives the model a **live view** of the files it is working on.
 
 Instead of `read()` burning a file snapshot permanently into the conversation, `open()` keeps a *window* on the file. The contents of every open window are re-read from disk before each request and appended to a `LIVE VIEW` block at the end of the prompt, so the model always sees the file as it is now — no rebuilding state from an old read plus edit diffs. `close()` releases the window and its context.
@@ -126,8 +128,6 @@ The model re-adjusts the range when the offsets no longer cover what it needs.
 The live-view block is dynamic and regenerated at each request so it is never cached.  It is at the tail of the session, so the session itself is cached, but for online providers this will increase the costs significantly.  
 
 This extension is targeted at local inference where this is not too much of an issue.  
-
-
 
 ## Initial test results
 
