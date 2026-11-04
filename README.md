@@ -59,7 +59,7 @@ open(1, 500, 50)               -> re-ranges W1 in place, keeping its id
 * Multiple windows per file are allowed. Re-ranging requires the window id.
 * Plain text files only; a file containing a NUL byte is rejected.
 
-### `close(window | path)`
+### `close(windowId | path)`
 
 `close(2)` closes window W2. `close("src/price.js")` works only when that file has exactly one window — otherwise it fails and lists the ids. Reports how many tokens it freed.
 
@@ -101,7 +101,7 @@ With `reserveTokens` from pi's compaction settings (16384 by default) and `worki
 | Compaction also triggers  | `contextTokens + blockTokens + reserveTokens > contextWindow` |
 | Minimum live-view reserve | `working * 1/3`                                               |
 
-Rejected `open()` calls explain the sizes involved and suggest `close()` or shrinking a window (`open(window, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
+Rejected `open()` calls explain the sizes involved and suggest `close()` or shrinking a window (`open(windowId, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
 
 Every `open()` / `close()` result reports the window's token cost and the live view's share of the working context.
 

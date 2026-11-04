@@ -208,7 +208,7 @@ export default function (pi: ExtensionAPI) {
 		name: "open",
 		label: "open",
 		description:
-			"Open a live window on a text file. Preferred over read(): the window is NOT written into the conversation, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now, with no rebuilding from earlier reads or edit diffs. open(path, offset, limit) opens a new window; open(window, offset, limit) re-ranges an existing window, keeping its id. Returns a confirmation only (window id and range), never file contents. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.",
+			"Open a live window on a text file. Preferred over read(): the window is NOT written into the conversation, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now, with no rebuilding from earlier reads or edit diffs. open(path, offset, limit) opens a new window; open(windowId, offset, limit) re-ranges an existing window, keeping its id. Returns a confirmation only (window id and range), never file contents. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.",
 		promptSnippet: "Open a live-view window on a file (refreshed on every request)",
 		promptGuidelines: [
 			"Prefer open over read for any file you will edit or re-check: open() keeps a live copy of the file in the LIVE VIEW block instead of burning context, and close() releases it.",
@@ -216,7 +216,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			path: Type.Optional(Type.String({ description: "File to open (relative or absolute). Omit when re-ranging an existing window." })),
-			window: Type.Optional(Type.Number({ description: "Existing window id to re-range. Use with offset/limit only, no path." })),
+			windowId: Type.Optional(Type.Number({ description: "Existing window id to re-range. Use with offset/limit only, no path." })),
 			offset: Type.Optional(Type.Number({ description: "Line number to start the window at (1-indexed)" })),
 			limit: Type.Optional(Type.Number({ description: `Maximum number of lines in the window (max ${DEFAULT_MAX_LINES})` })),
 		}),
@@ -225,8 +225,8 @@ export default function (pi: ExtensionAPI) {
 			const fail = (text: string) => ({ content: [{ type: "text" as const, text }], details: {}, isError: true });
 			const b = budget(ctx);
 
-			if (params.window === undefined && !params.path) {
-				return fail("open needs either path (new window) or window (re-range).");
+			if (params.windowId === undefined && !params.path) {
+				return fail("open needs either path (new window) or windowId (re-range).");
 			}
 
 			let w: LiveWindow | undefined;
@@ -239,9 +239,9 @@ export default function (pi: ExtensionAPI) {
 				restore();
 				return fail(text);
 			};
-			if (params.window !== undefined) {
-				index = windows.findIndex((x) => x.id === params.window);
-				if (index < 0) return fail(`no window ${params.window}. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}`);
+			if (params.windowId !== undefined) {
+				index = windows.findIndex((x) => x.id === params.windowId);
+				if (index < 0) return fail(`no window ${params.windowId}. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}`);
 				w = windows[index];
 				const prev = { ...w };
 				windows.splice(index, 1);
@@ -277,13 +277,13 @@ export default function (pi: ExtensionAPI) {
 			const windowTokens = tok(`${head(w, info.startLine, info.endLine, info.total, [])}\n${info.text}`);
 			if (existing + windowTokens > b.maxLive) {
 				return bail(
-					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap ((context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3). Close windows with close(), or shrink them with open(window, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
+					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap ((context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3). Close windows with close(), or shrink them with open(windowId, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
 				);
 			}
 			const contextTokens = ctx.getContextUsage()?.tokens ?? 0;
 			if (contextTokens + existing + windowTokens + RESERVE_TOKENS > b.contextWindow) {
 				return bail(
-					`open failed: context (~${contextTokens}) + live view (~${existing + windowTokens}) + ${RESERVE_TOKENS} reserve exceeds the ${b.contextWindow} token context window. Close windows with close(), shrink them with open(window, offset, limit), or let the conversation compact first.`,
+					`open failed: context (~${contextTokens}) + live view (~${existing + windowTokens}) + ${RESERVE_TOKENS} reserve exceeds the ${b.contextWindow} token context window. Close windows with close(), shrink them with open(windowId, offset, limit), or let the conversation compact first.`,
 				);
 			}
 
@@ -314,19 +314,19 @@ export default function (pi: ExtensionAPI) {
 		name: "close",
 		label: "close",
 		description:
-			"Close a live view window created by open(): it is removed from the LIVE VIEW block and its space in the context is freed. close(window) closes one window by id; close(path) works only when that file has exactly one window.",
+			"Close a live view window created by open(): it is removed from the LIVE VIEW block and its space in the context is freed. close(windowId) closes one window by id; close(path) works only when that file has exactly one window.",
 		promptSnippet: "Close a live-view window and free its context",
 		parameters: Type.Object({
-			window: Type.Optional(Type.Number({ description: "Window id to close" })),
+			windowId: Type.Optional(Type.Number({ description: "Window id to close" })),
 			path: Type.Optional(Type.String({ description: "File whose single open window to close (relative or absolute)" })),
 		}),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const b = budget(ctx);
 			const before = blockTokens;
-			const target = params.window ?? (params.path ? windows.find((x) => x.path === resolve(ctx.cwd, params.path!))?.id : undefined);
+			const target = params.windowId ?? (params.path ? windows.find((x) => x.path === resolve(ctx.cwd, params.path!))?.id : undefined);
 
-			if (params.window === undefined && params.path) {
+			if (params.windowId === undefined && params.path) {
 				const matches = windows.filter((x) => x.path === resolve(ctx.cwd, params.path!));
 				if (matches.length === 0) return { content: [{ type: "text" as const, text: `close failed: no open window for ${params.path}.` }], details: {}, isError: true };
 				if (matches.length > 1) {
@@ -339,7 +339,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (target === undefined) {
 				return {
-					content: [{ type: "text" as const, text: `close needs window or path. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}.` }],
+					content: [{ type: "text" as const, text: `close needs windowId or path. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}.` }],
 					details: {},
 					isError: true,
 				};
