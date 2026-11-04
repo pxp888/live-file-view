@@ -63,7 +63,8 @@ async function readWindow(w: LiveWindow) {
 	return {
 		total,
 		startLine: startIdx + 1,
-		endLine: startIdx + slice.length,
+		// A byte cut drops whole lines from the end of the slice; report only the lines actually shown.
+		endLine: startIdx + (trunc.truncated ? trunc.outputLines : slice.length),
 		text: trunc.content,
 		sizeCut: trunc.truncated,
 		firstLineTooBig: trunc.firstLineExceedsLimit,
@@ -208,7 +209,7 @@ export default function (pi: ExtensionAPI) {
 		name: "open",
 		label: "open",
 		description:
-			"Open a live window on a text file. Preferred over read(): the window is NOT written into the conversation, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now, with no rebuilding from earlier reads or edit diffs. open(path, offset, limit) opens a new window; open(windowId, offset, limit) re-ranges an existing window, keeping its id. Returns a confirmation only (window id and range), never file contents. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.",
+			`Open a live window on a text file. Preferred over read(): the window is NOT written into the conversation, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now, with no rebuilding from earlier reads or edit diffs. open(path, offset, limit) opens a new window; open(windowId, offset, limit) re-ranges an existing window, keeping its id. Returns a confirmation only (window id and range), never file contents. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
 		promptSnippet: "Open a live-view window on a file (refreshed on every request)",
 		promptGuidelines: [
 			"Prefer open over read for any file you will edit or re-check: open() keeps a live copy of the file in the LIVE VIEW block instead of burning context, and close() releases it.",
