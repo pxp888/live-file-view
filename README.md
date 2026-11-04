@@ -16,10 +16,9 @@ The first is search without context burn.  Normally when a model opens a file lo
 
 The tool calls themselves stay in session so the model can see open(file A), any thoughts or notes it may have had, and close(file A).  But it doesn't need to see the actual file anymore.  
 
-### inspect, narrow, focus 
+### inspect, narrow, focus
 
 A large file can be opened and read in its entirety.  Then the model can determine the important parts of the file to look at, close the full file, and only open narrow focused windows on the parts that it is referencing.  
-
 
 ### close on completion
 
@@ -29,26 +28,22 @@ These two behaviors could enable a model to accomplish much more work between co
 
 Again, the tool calls still live in session so the model knows it opened, edited, and closed the file.  
 
-Design rationale is in [`design.md`](./design.md); the implementation is a single file, [`liveview.ts`](./liveview.ts).
+Design rationale is in [`design.md`](./design.md); the implementation is a single file, [index.ts](extensions/liveview/index.ts)
 
 ## Run it
 
-```bash
-pi -e ./liveview.ts
-```
+Drop the liveview extension folder in .pi/extensions if you want it project local.  
 
-Or, once it is ready to install, drop it in `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project-local). It is deliberately kept in the project root for now.
+Same with .pi/skills.  
 
-To also load the usage guidance for the model, copy [`skills/liveview/`](./skills/liveview) into `~/.pi/agent/skills/` or `.pi/skills/` and use it with `/skill:liveview`:
+The final paths should look like: 
 
-```bash
-cp -r skills/liveview ~/.pi/agent/skills/liveview   # global
-# or, for this project only: .pi/skills/liveview
-```
+    project_folder/.pi/skills/liveview/SKILL.md
+    project_folder/.pi/extensions/liveview/index.ts
 
-The skill is the model-facing guide: when to prefer `open()` over `read()`, and the two context-releasing behaviours — *search and dismiss* and *close on completion*.
 
-## Tools
+
+# Tools
 
 ### `open(path, offset, limit)`
 
@@ -102,7 +97,7 @@ With `reserveTokens` from pi's compaction settings (16384 by default) and `worki
 | Rule                      | Threshold                                                     |
 | ------------------------- | ------------------------------------------------------------- |
 | Max live view             | `working * 2/3` — `open()` fails above it                     |
-| Compaction triggers       | `contextTokens + blockTokens + reserveTokens > contextWindow`  |
+| Compaction triggers       | `contextTokens + blockTokens + reserveTokens > contextWindow` |
 | Minimum live-view reserve | `working * 1/3`                                               |
 
 Compaction is requested from `agent_settled`, once the run has settled. It is deliberately not requested from the `context` handler: `ctx.compact()` is pi's manual compaction entry point, which aborts the agent operation it is called during and never resumes that turn.

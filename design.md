@@ -4,7 +4,7 @@
 
 In the normal flow of editing, a model reads a file which places it into the context.  Multiple edits may then be performed.  To construct the current view of the file the model must reconstruct the state from original + diffs.
 
-I'd like to introduce an open() tool, which has a similar signature to the read() tool except it simply returns 'open successful - live-view window N '.  The view of the file itself is added to a 'live view' block appended to the end of the session context.  
+I'd like to introduce an open() tool, which has a similar signature to the read() tool except it simply returns 'open successful - live-view window <id>' (e.g. 'open successful - live-view window blue-fox').  The view of the file itself is added to a 'live view' block appended to the end of the session context.  
 
 In that sense it is very similar to the read() tool, except file contents are placed in the live-view block, not the context itself.  
 
@@ -12,7 +12,7 @@ This block is refreshed before any request is sent out, so the model always sees
 
 This should reduce errors by making the current state clearer.  The model never has to reconstruct the current state from original + diffs.  
 
-Multiple views of the same file are allowed.  Each window has a unique ID number that is never assigned twice.  
+Multiple views of the same file are allowed.  Each window has a unique, non-ordered color-noun handle (e.g. blue-fox) assigned from a pool so as not to convey sequence or count.  
 
 open() can also be called on existing windows with different parameters, to shrink, expand, or change offset.  
 
@@ -24,7 +24,7 @@ The model is free to choose either read() or open(), but the tool description sh
 
 Edits are appended to the session context normally.
 
-There should also be a corresponding close() tool.  This returns a simple 'close <filename> successful.' (or something equivalent) and that 'window' to a file should be removed from the live-view block.  close() should also work with window ID numbers, so that if multiple windows of the same file are open the model can specify.  
+There should also be a corresponding close() tool.  This returns a simple 'close <filename> successful.' (or something equivalent) and that 'window' to a file should be removed from the live-view block.  close() should also work with window IDs, so that if multiple windows of the same file are open the model can specify.  
 
 There is a secondary goal to see if a model can effectively close() files.  A read() file burns context permanently, while an open() file can be closed, and the its context is freed for other work.  
 
@@ -32,9 +32,9 @@ There is a secondary goal to see if a model can effectively close() files.  A re
 
 The block is built fresh and appended to every request that has at least one file open. It is never written into the session. The earlier copies of an open file are not stripped yet: read results stay in the request exactly as they were, and the block says in words that it wins over them.
 
-Each 'window' needs an ID number.  There should be a counter that only increments, so window ID numbers are never issued twice.  In addition to the id counter, the extension needs to track for each window:
+Each 'window' needs an identifier.  Identifiers are non-ordered color-noun handles (e.g. 'blue-fox') picked without collision among active windows so that no ordinality or sequence is implied.  The extension needs to track for each window:
 
-* Window Id number
+* Window ID
 
 * file path or name
 
@@ -50,7 +50,7 @@ Each window in the live-view block needs:
 
 * a line explaining that THIS IS THE CURRENT STATE OF THE FILE.
 
-* window ID number
+* window ID
 
 * Filename
 
@@ -69,23 +69,23 @@ A sample view is below:
   and in place of rebuilding it from edit diffs.
 
   3 windows · 2070 lines shown · this block is 62% of the space left in this context
-    W1  src/price.js   lines 10-39 of 2400
-    W2  src/price.js   lines 500-549 of 2400
-    W3  src/parse.js   lines 1-1620 of 4300
+    blue-fox    src/price.js   lines 10-39 of 2400
+    red-weasel  src/price.js   lines 500-549 of 2400
+    amber-otter src/parse.js   lines 1-1620 of 4300
 
-  <<< W1  src/price.js  lines 10-39 of 2400 >>>
+  <<< blue-fox  src/price.js  lines 10-39 of 2400 >>>
   import { RATE } from "./constants";
   ipsum lorem code here
-  <<</W1>>>
+  <<</blue-fox>>>
 
-  <<< W2  src/price.js  lines 500-549 of 2400 >>>
+  <<< red-weasel  src/price.js  lines 500-549 of 2400 >>>
   export function calculateTotal(items) {
   ipsum lorem code here
-  <<</W2>>>
+  <<</red-weasel>>>
 
-  <<< W3  src/parse.js  lines 1-1620 shown of 4300 >>>
+  <<< amber-otter  src/parse.js  lines 1-1620 shown of 4300 >>>
   ipsum lorem code here
-  <<</W3>>>
+  <<</amber-otter>>>
 
   <<<<END LIVE VIEW>>>>
 ```
@@ -169,7 +169,7 @@ A window is a line range into the file's current state, nothing more. Each refre
 If the file changed since the last refresh, say so in the window header:
 
 ```
-W2  src/price.js  lines 500-549 of 2400 (file changed since last refresh)
+red-weasel  src/price.js  lines 500-549 of 2400 (file changed since last refresh)
 ```
 
 No edit-event machinery. The model re-adjusts the window itself when the offsets no longer cover what it needs.
