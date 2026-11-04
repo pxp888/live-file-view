@@ -1,6 +1,6 @@
 ---
 name: liveview
-description: Use the liveview extension's open()/close() tools for every file you inspect or edit, in place of read(). Gives a constant current view of files on disk, and lets the model release file contents from context with close(). Use when searching across many files, editing, re-checking files, or freeing context.
+description: Use the liveview extension's open()/close() tools for every file you inspect or edit, in place of read(). Gives a constant current view of files on disk, and lets the model release file contents from context with close(). Use when searching across many files, editing, re-checking files, or releasing files that stop being useful.
 ---
 
 # Live view: open() and close()
@@ -16,16 +16,16 @@ Use these whenever `open` / `close` appear in your tool list. They replace `read
 ## Tool signatures
 
 ```
-open(path)                        whole file, new window W<n>
-open(path, offset, limit)        line range, new window W<n>
+open(path)                        whole file, new window (e.g. blue-fox)
+open(path, offset, limit)        line range, new window (e.g. blue-fox)
 open(windowId, offset, limit)    re-range an existing window, keeps its id
-close(windowId)                  close one window
+close(windowId)                  close one window by id (e.g. "blue-fox")
 close(path)                      closes it, only if that file has exactly one window
 ```
 
 * `open()` returns a confirmation and the range shown — **never the contents**. The contents are already in your context when you read that confirmation: the LIVE VIEW block sits directly after the tool result.
 * Same limits as `read()`: 2000 lines or 50KB, whichever comes first. Use `offset`/`limit` for big files.
-* Window ids are never reused. Two windows on one file are fine (`W1` lines 10-50, `W2` lines 500-560).
+* Window ids are non-ordered color-noun handles (e.g. `blue-fox`). Two windows on one file are fine (`blue-fox` lines 10-50, `amber-otter` lines 500-560).
 * Window contents are raw text with no line-number prefixes — copy them verbatim into `edit` search strings.
 
 ## Rules while a window is open
@@ -37,45 +37,45 @@ close(path)                      closes it, only if that file has exactly one wi
    * `file changed since last refresh` — the offsets may no longer cover what you need; re-range the window.
    * `offset beyond end of file` / `no lines of N` — the window is empty, move or close it.
    * `cut at the 50KB read limit` or `truncated to fit the live-view budget` — the range shown is smaller than requested; open a second window or shrink others.
-5. **Never `open()` a file without also planning to close it.** Open windows are re-sent on every request.
+5. **Keep a window open while the file is still part of your work.** Open windows are re-sent on every request, but `close()` is always available and takes back nothing you'd want — close late, when a window stops being useful or the live-view cap pushes back, not out of hand.
 
 ## Behavior 1: search and dismiss
 
 Searching normally costs context for every file you look at. With open/close a file you reject costs only the tool calls.
 
 ```
-open("src/loaders/csv.js")      -> W3 confirmation only
-   (W3 contents are in the LIVE VIEW block, right after that tool result)
+open("src/loaders/csv.js")      -> blue-fox confirmation only
+   (blue-fox contents are in the LIVE VIEW block, right after that tool result)
    ...judge it: not the right place...
-close(3)                        -> freed ~4100 tokens
+close("blue-fox")               -> freed ~4100 tokens
 ```
 
 The `open` / notes / `close` sequence stays in the session, so you still know you looked at `csv.js` and what you concluded — you just no longer carry its bytes. This lets you survey **more files than fit in the context window**.
 
-Pattern for a wide search: open one or two files at a time, look, note the finding, `close()`, move on. Do not accumulate windows across a search.
+Pattern for a wide search: open a file, look, note the finding, then `close()` the files you've ruled out — a rejected file has no future value. Candidates you may return to can stay open.
 
 ## Behavior 2: inspect, narrow, focus
 
 Large files do not need to stay fully open while you edit a single function. Open wide to locate the code, then narrow the window to the working region:
 
 ```
-open("src/services/billing.ts")       -> W1 (1200 lines, ~4200 tokens)
+open("src/services/billing.ts")       -> blue-fox (1200 lines, ~4200 tokens)
    (LIVE VIEW shows the file; target function is at lines 340-385)
-open(1, 335, 60)                      -> re-ranges W1 to lines 335-394 (~300 tokens)
+open("blue-fox", 335, 60)             -> re-ranges blue-fox to lines 335-394 (~300 tokens)
    (freed ~3900 tokens for subsequent editing turns)
    ...make your edits with a clean, focused live view...
-close(1)                              -> released on completion
+close("blue-fox")                     -> released on completion
 ```
 
-Never pay for 1000+ lines of unchanged context across multiple turns when your work is only on 50 lines.
+Narrow when the wide range has served its purpose. Don't shrink below the region you still need to read — re-opening is cheaper than re-deriving.
 
-## Behavior 3: close on completion
+## Behavior 3: close when the file is done
 
 When a file's work is finished, release it:
 
 * boilerplate, scaffolding, config, or a file you only edited once — `close()` it
-* a file you still may reference but only in part — shrink instead: `open(4, 100, 40)`
-* keep open only what you are actively editing or re-checking
+* keep open what you are actively editing or may re-check
+* shrink only when you know a smaller range is enough: `open("blue-fox", 100, 40)`
 
 This is what lets you do much more work between compaction events: the context holds your decisions and tool calls, not stale file bodies.
 
@@ -85,8 +85,8 @@ The live view shares the context window with the conversation and is capped at 2
 
 * `open()` fails when the next window would exceed the cap or the whole context. The error tells you the sizes; act on it by `close()`ing or shrinking windows.
 * Every `open()` / `close()` result reports token cost and the live view's share of the working context — treat that number as the price of the window.
-* A large live view forces compaction of the conversation sooner. When context is tight, close windows before they are needed, not after.
-* `close()`ing is always available to you; it is the lever, so keep windows small enough that the lever works.
+* A large live view forces compaction of the conversation sooner — that is the real cost of keeping windows, and the reason to release finished ones.
+* The cap is the trigger, not a threat: when `open()` refuses, or a header reports `truncated to fit the live-view budget`, that is the moment to close or shrink. Act on it then, not before.
 
 ## Use open(), not read()
 

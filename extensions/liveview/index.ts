@@ -19,7 +19,7 @@ import { Type } from "typebox";
  */
 
 interface LiveWindow {
-	id: number;
+	id: string; // non-ordered color-noun handle (e.g. "blue-fox")
 	path: string; // absolute
 	label: string; // shown to the model
 	offset: number; // 1-based start line
@@ -27,8 +27,33 @@ interface LiveWindow {
 	statKey: string; // "mtimeMs:size" at the last refresh, for drift detection
 }
 
+const COLORS = [
+	"amber", "azure", "blue", "bronze", "copper", "coral", "crimson", "cyan",
+	"emerald", "gold", "gray", "green", "indigo", "jade", "mint", "olive",
+	"onyx", "orange", "pearl", "plum", "purple", "red", "rose", "ruby",
+	"rust", "sage", "silver", "slate", "teal", "violet",
+];
+
+const NOUNS = [
+	"badger", "bear", "beaver", "bison", "crane", "deer", "eagle", "falcon",
+	"finch", "fox", "gecko", "hare", "hawk", "heron", "koala", "lark",
+	"lynx", "mole", "moose", "newt", "otter", "owl", "panda", "puma",
+	"quail", "raven", "robin", "seal", "sloth", "swan", "tiger", "viper",
+	"weasel", "wolf", "wren",
+];
+
 const windows: LiveWindow[] = [];
-let nextWindowId = 1;
+
+function generateWindowId(): string {
+	const active = new Set(windows.map((w) => w.id));
+	for (let i = 0; i < 100; i++) {
+		const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+		const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+		const id = `${color}-${noun}`;
+		if (!active.has(id)) return id;
+	}
+	return `win-${Math.random().toString(36).slice(2, 6)}`;
+}
 let blockTokens = 0; // live-view size measured by the last build
 let compacting = false;
 let compactionMarker = false; // say "an earlier read may be summarised away" once after each compaction
@@ -101,7 +126,7 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 		else if (info.sizeCut) flags.push(`cut at the ${formatSize(DEFAULT_MAX_BYTES)} read limit`);
 
 		// Absolute cap: shrinking windows is the only lever left once the block itself is too big.
-		let chunk = `${head(w, startLine, endLine, info.total, flags)}\n${text}\n<<</W${w.id}>>>`;
+		let chunk = `${head(w, startLine, endLine, info.total, flags)}\n${text}\n<<</${w.id}>>>`;
 		let tokens = tok(chunk);
 		if (usedTokens + tokens > b.maxLive) {
 			const allowed = Math.max(0, (b.maxLive - usedTokens) * 4 - chunk.length + text.length);
@@ -119,11 +144,11 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 			text = kept.join("\n");
 			endLine = startLine + kept.length - 1;
 			flags.push("truncated to fit the live-view budget");
-			chunk = `${head(w, startLine, endLine, info.total, flags)}\n${text}\n<<</W${w.id}>>>`;
+			chunk = `${head(w, startLine, endLine, info.total, flags)}\n${text}\n<<</${w.id}>>>`;
 			tokens = tok(chunk);
 		}
 
-		index.push(`  W${w.id}  ${w.label}   ${range(startLine, endLine, info.total)}`);
+		index.push(`  ${w.id}  ${w.label}   ${range(startLine, endLine, info.total)}`);
 		chunks.push(chunk);
 		linesShown += endLine - startLine + 1;
 		usedTokens += tokens;
@@ -158,7 +183,7 @@ function range(startLine: number, endLine: number, total: number) {
 }
 
 function head(w: LiveWindow, startLine: number, endLine: number, total: number, flags: string[]) {
-	return `<<< W${w.id}  ${w.label}  ${range(startLine, endLine, total)}${flags.length ? ` (${flags.join(", ")})` : ""} >>>`;
+	return `<<< ${w.id}  ${w.label}  ${range(startLine, endLine, total)}${flags.length ? ` (${flags.join(", ")})` : ""} >>>`;
 }
 
 function sizeReport(b: ReturnType<typeof budget>) {
@@ -168,7 +193,6 @@ function sizeReport(b: ReturnType<typeof budget>) {
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", () => {
 		windows.length = 0;
-		nextWindowId = 1;
 		blockTokens = 0;
 		compacting = false;
 		compactionMarker = false;
@@ -226,7 +250,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			path: Type.Optional(Type.String({ description: "File to open (relative or absolute). Omit when re-ranging an existing window." })),
-			windowId: Type.Optional(Type.Number({ description: "Existing window id to re-range. Use with offset/limit only, no path." })),
+			windowId: Type.Optional(Type.String({ description: "Existing window id (e.g. 'blue-fox') to re-range. Use with offset/limit only, no path." })),
 			offset: Type.Optional(Type.Number({ description: "Line number to start the window at (1-indexed)" })),
 			limit: Type.Optional(Type.Number({ description: `Maximum number of lines in the window (max ${DEFAULT_MAX_LINES})` })),
 		}),
@@ -251,7 +275,7 @@ export default function (pi: ExtensionAPI) {
 			};
 			if (params.windowId !== undefined) {
 				index = windows.findIndex((x) => x.id === params.windowId);
-				if (index < 0) return fail(`no window ${params.windowId}. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}`);
+				if (index < 0) return fail(`no window ${params.windowId}. Open windows: ${windows.map((x) => `${x.id} ${x.label}`).join(", ") || "none"}`);
 				w = windows[index];
 				const prev = { ...w };
 				windows.splice(index, 1);
@@ -265,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 			} else {
 				const path = resolve(ctx.cwd, params.path!);
 				w = {
-					id: nextWindowId++,
+					id: generateWindowId(),
 					path,
 					label: displayPath(path, ctx.cwd),
 					offset: Math.max(1, params.offset ?? 1),
@@ -327,7 +351,7 @@ export default function (pi: ExtensionAPI) {
 			"Close a live view window created by open(): it is removed from the LIVE VIEW block and its space in the context is freed. close(windowId) closes one window by id; close(path) works only when that file has exactly one window.",
 		promptSnippet: "Close a live-view window and free its context",
 		parameters: Type.Object({
-			windowId: Type.Optional(Type.Number({ description: "Window id to close" })),
+			windowId: Type.Optional(Type.String({ description: "Window id (e.g. 'blue-fox') to close" })),
 			path: Type.Optional(Type.String({ description: "File whose single open window to close (relative or absolute)" })),
 		}),
 
@@ -341,7 +365,7 @@ export default function (pi: ExtensionAPI) {
 				if (matches.length === 0) return { content: [{ type: "text" as const, text: `close failed: no open window for ${params.path}.` }], details: {}, isError: true };
 				if (matches.length > 1) {
 					return {
-						content: [{ type: "text" as const, text: `close failed: ${matches.length} windows open on ${params.path}. Close by id: ${matches.map((x) => `W${x.id}`).join(", ")}.` }],
+						content: [{ type: "text" as const, text: `close failed: ${matches.length} windows open on ${params.path}. Close by id: ${matches.map((x) => x.id).join(", ")}.` }],
 						details: {},
 						isError: true,
 					};
@@ -349,14 +373,14 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (target === undefined) {
 				return {
-					content: [{ type: "text" as const, text: `close needs windowId or path. Open windows: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}.` }],
+					content: [{ type: "text" as const, text: `close needs windowId or path. Open windows: ${windows.map((x) => `${x.id} ${x.label}`).join(", ") || "none"}.` }],
 					details: {},
 					isError: true,
 				};
 			}
 
 			const index = windows.findIndex((x) => x.id === target);
-			if (index < 0) return { content: [{ type: "text" as const, text: `close failed: no window ${target}. Open: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ") || "none"}.` }], details: {}, isError: true };
+			if (index < 0) return { content: [{ type: "text" as const, text: `close failed: no window ${target}. Open: ${windows.map((x) => `${x.id} ${x.label}`).join(", ") || "none"}.` }], details: {}, isError: true };
 			const [closed] = windows.splice(index, 1);
 
 			const block = await buildBlock(ctx);
@@ -368,9 +392,9 @@ export default function (pi: ExtensionAPI) {
 					{
 						type: "text" as const,
 						text: [
-							`close W${closed.id} ${closed.label} successful.`,
+							`close ${closed.id} ${closed.label} successful.`,
 							`freed ~${freed} tokens · ${sizeReport(b)}`,
-							windows.length === 0 ? "No live view windows remain; the LIVE VIEW block is gone from requests." : `still open: ${windows.map((x) => `W${x.id} ${x.label}`).join(", ")}`,
+							windows.length === 0 ? "No live view windows remain; the LIVE VIEW block is gone from requests." : `still open: ${windows.map((x) => `${x.id} ${x.label}`).join(", ")}`,
 						].join("\n"),
 					},
 				],
