@@ -14,11 +14,15 @@ In addition, the close() command allows a model to release file contents from it
 
 The first is search without context burn.  Normally when a model opens a file looking for something that file is held in context until a compaction event.  open() and close() allow a model to look at a flie, decide it doesn't have what is needed, and close it again without burning context.  A model could search through more information than what fits in its context window.  
 
+The tool calls themselves stay in session so the model can see open(file A), any thoughts or notes it may have had, and close(file A).  But it doesn't need to see the actual file anymore.  
+
 ### close on completion
 
 The second possible benefit would be close on completion.  If a model has finished writing boilerplate files for example, they can be closed and their context freed for other work.  
 
 These two behaviors could enable a model to accomplish much more work between compaction events than is normally possible.  
+
+Again, the tool calls still live in session so the model knows it opened, edited, and closed the file.  
 
 
 
@@ -31,6 +35,15 @@ pi -e ./liveview.ts
 ```
 
 Or, once it is ready to install, drop it in `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project-local). It is deliberately kept in the project root for now.
+
+To also load the usage guidance for the model, copy [`skills/liveview/`](./skills/liveview) into `~/.pi/agent/skills/` or `.pi/skills/` and use it with `/skill:liveview`:
+
+```bash
+cp -r skills/liveview ~/.pi/agent/skills/liveview   # global
+# or, for this project only: .pi/skills/liveview
+```
+
+The skill is the model-facing guide: when to prefer `open()` over `read()`, and the two context-releasing behaviours — *search and dismiss* and *close on completion*.
 
 ## Tools
 
@@ -109,7 +122,7 @@ The model re-adjusts the range when the offsets no longer cover what it needs.
 * Window state lives in memory only — `/resume`, `/tree` and forks drop open windows silently.
 * The block is re-prefilled every request, so on large local contexts (this is aimed at qwen3.8:27b / qwen3.8-flash-next with 128k+) prefill time per turn is a real cost, not only token count.
 * Standard compaction summarises away earlier reads while windows keep refreshing; the first block after a compaction boundary carries a one-line marker saying an earlier read may have been summarised away.
-* Not implemented yet, by design: stripping earlier `read()` results for opened files, a custom compaction routine, a skills file, and any mechanism that forces the model to use `open()` over `read()`.
+* Not implemented yet, by design: stripping earlier `read()` results for opened files, a custom compaction routine, and any mechanism that forces the model to use `open()` over `read()`.
 
 
 
