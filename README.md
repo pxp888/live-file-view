@@ -16,6 +16,11 @@ The first is search without context burn.  Normally when a model opens a file lo
 
 The tool calls themselves stay in session so the model can see open(file A), any thoughts or notes it may have had, and close(file A).  But it doesn't need to see the actual file anymore.  
 
+### inspect, narrow, focus 
+
+A large file can be opened and read in its entirety.  Then the model can determine the important parts of the file to look at, close the full file, and only open narrow focused windows on the parts that it is referencing.  
+
+
 ### close on completion
 
 The second possible benefit would be close on completion.  If a model has finished writing boilerplate files for example, they can be closed and their context freed for other work.  

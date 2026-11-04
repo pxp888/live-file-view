@@ -54,7 +54,22 @@ The `open` / notes / `close` sequence stays in the session, so you still know yo
 
 Pattern for a wide search: open one or two files at a time, look, note the finding, `close()`, move on. Do not accumulate windows across a search.
 
-## Behavior 2: close on completion
+## Behavior 2: inspect, narrow, focus
+
+Large files do not need to stay fully open while you edit a single function. Open wide to locate the code, then narrow the window to the working region:
+
+```
+open("src/services/billing.ts")       -> W1 (1200 lines, ~4200 tokens)
+   (LIVE VIEW shows the file; target function is at lines 340-385)
+open(1, 335, 60)                      -> re-ranges W1 to lines 335-394 (~300 tokens)
+   (freed ~3900 tokens for subsequent editing turns)
+   ...make your edits with a clean, focused live view...
+close(1)                              -> released on completion
+```
+
+Never pay for 1000+ lines of unchanged context across multiple turns when your work is only on 50 lines.
+
+## Behavior 3: close on completion
 
 When a file's work is finished, release it:
 
