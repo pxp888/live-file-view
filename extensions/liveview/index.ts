@@ -105,77 +105,99 @@ async function readWindow(w: LiveWindow) {
  * Collapses the need for a separate grep -n / repo_map call before aiming a window.
  */
 function extractOutline(allLines: string[]): string {
-	const symbols: string[] = [];
-	for (let i = 0; i < allLines.length && symbols.length < 10; i++) {
+	const headingSymbols: Array<{ lineNo: number; text: string }> = [];
+	const otherSymbols: Array<{ lineNo: number; text: string }> = [];
+
+	for (let i = 0; i < allLines.length; i++) {
 		const line = allLines[i];
 		const trimmed = line.trim();
 		const lineNo = i + 1;
 
-		// pi tool registration
-		const toolMatch = line.match(/(?:pi\.)?registerTool\(\s*\{\s*name:\s*["']([^"']+)["']/);
-		if (toolMatch) {
-			symbols.push(`${lineNo} ${toolMatch[1]} tool`);
-			continue;
-		}
-
 		// Markdown headings
 		const mdMatch = trimmed.match(/^(#{1,3})\s+(.+)/);
 		if (mdMatch) {
-			symbols.push(`${lineNo} ${mdMatch[2].slice(0, 25)}`);
+			const heading = mdMatch[2].trim();
+			headingSymbols.push({
+				lineNo,
+				text: `${lineNo} ${heading.length > 45 ? heading.slice(0, 45) : heading}`,
+			});
+			continue;
+		}
+
+		// pi tool registration
+		const toolMatch = line.match(/(?:pi\.)?registerTool\(\s*\{\s*name:\s*["']([^"']+)["']/);
+		if (toolMatch) {
+			otherSymbols.push({ lineNo, text: `${lineNo} ${toolMatch[1]} tool` });
 			continue;
 		}
 
 		// JS/TS exports and functions
 		if (/^export\s+default\s+function/.test(trimmed)) {
-			symbols.push(`${lineNo} export default function`);
+			otherSymbols.push({ lineNo, text: `${lineNo} export default function` });
 			continue;
 		}
 		if (/^export\s+default\s+class/.test(trimmed)) {
-			symbols.push(`${lineNo} export default class`);
+			otherSymbols.push({ lineNo, text: `${lineNo} export default class` });
 			continue;
 		}
 		const fnMatch = trimmed.match(/^(?:export\s+)?(?:async\s+)?function\s*([a-zA-Z0-9_$]+)?/);
 		if (fnMatch) {
-			symbols.push(`${lineNo} function ${fnMatch[1] || "anonymous"}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} function ${fnMatch[1] || "anonymous"}` });
 			continue;
 		}
 		const classMatch = trimmed.match(/^(?:export\s+)?(?:abstract\s+)?class\s+([a-zA-Z0-9_$]+)/);
 		if (classMatch) {
-			symbols.push(`${lineNo} class ${classMatch[1]}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} class ${classMatch[1]}` });
 			continue;
 		}
 		const ifaceMatch = trimmed.match(/^(?:export\s+)?interface\s+([a-zA-Z0-9_$]+)/);
 		if (ifaceMatch) {
-			symbols.push(`${lineNo} interface ${ifaceMatch[1]}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} interface ${ifaceMatch[1]}` });
 			continue;
 		}
 		const typeMatch = trimmed.match(/^(?:export\s+)?type\s+([a-zA-Z0-9_$]+)\s*=/);
 		if (typeMatch) {
-			symbols.push(`${lineNo} type ${typeMatch[1]}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} type ${typeMatch[1]}` });
 			continue;
 		}
 
 		// Python def / class
 		const pyMatch = trimmed.match(/^(?:async\s+)?def\s+([a-zA-Z0-9_]+)|class\s+([a-zA-Z0-9_]+)/);
 		if (pyMatch) {
-			symbols.push(`${lineNo} ${pyMatch[1] ? `def ${pyMatch[1]}` : `class ${pyMatch[2]}`}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} ${pyMatch[1] ? `def ${pyMatch[1]}` : `class ${pyMatch[2]}`}` });
 			continue;
 		}
 
 		// Rust / Go
 		const rustMatch = trimmed.match(/^(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z0-9_]+)/);
 		if (rustMatch) {
-			symbols.push(`${lineNo} fn ${rustMatch[1]}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} fn ${rustMatch[1]}` });
 			continue;
 		}
 		const goMatch = trimmed.match(/^func\s+(?:\([^)]+\)\s+)?([a-zA-Z0-9_]+)/);
 		if (goMatch) {
-			symbols.push(`${lineNo} func ${goMatch[1]}`);
+			otherSymbols.push({ lineNo, text: `${lineNo} func ${goMatch[1]}` });
 			continue;
 		}
 	}
 
-	return symbols.length > 0 ? `symbols: ${symbols.join(", ")}` : "";
+	const isHeadingBearing = headingSymbols.length > 0;
+	const cap = isHeadingBearing ? 14 : 10;
+
+	let selected: Array<{ lineNo: number; text: string }>;
+	if (isHeadingBearing) {
+		// Prefer markdown headings; fill any remaining slots with other symbols
+		selected = headingSymbols.slice(0, cap);
+		if (selected.length < cap) {
+			const remaining = cap - selected.length;
+			selected = selected.concat(otherSymbols.slice(0, remaining));
+			selected.sort((a, b) => a.lineNo - b.lineNo);
+		}
+	} else {
+		selected = otherSymbols.slice(0, cap);
+	}
+
+	return selected.length > 0 ? `symbols: ${selected.map((s) => s.text).join(", ")}` : "";
 }
 
 /** Build the live-view block. commit=false measures the size of the current windows without touching drift state. */
@@ -210,6 +232,12 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 		if (info.empty) flags.push("offset beyond end of file");
 		if (info.firstLineTooBig) flags.push(`line ${startLine} is ${formatSize(DEFAULT_MAX_BYTES)}, over the read limit`);
 		else if (info.sizeCut) flags.push(`cut at the ${formatSize(DEFAULT_MAX_BYTES)} read limit`);
+		if (!info.empty && text) {
+			const trailingWsCount = text.split("\n").filter((l) => /[ \t]+$/.test(l)).length;
+			if (trailingWsCount > 0) {
+				flags.push(`${trailingWsCount} line${trailingWsCount === 1 ? " has" : "s have"} trailing whitespace`);
+			}
+		}
 
 		// Absolute cap: shrinking windows is the only lever left once the block itself is too big.
 		let chunk = `${head(w, startLine, endLine, info.total, flags)}\n${text}\n<<</${w.id}>>>`;
@@ -248,7 +276,8 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 		"<<<<LIVE VIEW>>>>",
 		"Contents below were re-read from disk before this request. Each window is the file",
 		"as it is NOW: use it in place of any earlier read of that file in this conversation,",
-		"and in place of rebuilding it from edit diffs.",
+		"and in place of rebuilding it from edit diffs. Trailing and repeated whitespace in the",
+		"block are byte-exact — copy them verbatim into edit search strings.",
 		"",
 		`${chunks.length} window${chunks.length === 1 ? "" : "s"} · ${linesShown} lines shown · this block is ${Math.round((usedTokens / b.working) * 100)}% of the space left in this context`,
 		...index,
@@ -465,12 +494,12 @@ Recommended workflow:
 - For larger files, locate the region with grep -n (or repo_map) then open that range, or use open(path, around="symbol") / open(path, aroundLine=N) to aim directly.
 - open(windowId, offset, limit) re-ranges an existing window, keeping its id.
 
-Returns an acknowledgement receipt only (window id, range, outline symbols, and token budget), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
+Returns an acknowledgement receipt only (window id, range, outline symbols, and token budget), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Window contents are raw text with no line numbers: trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
 		promptSnippet: "Open a live-view window on a file (refreshed on every request)",
 		promptGuidelines: [
 			"Always prefer open() over read() for any text file you want to inspect, view, review, check, or edit. Do NOT call read() on text files in the workspace.",
 			"Workflow: for files under ~500 lines, open(path) without limit to view the whole file (~9 tokens/line). For larger files, locate with grep -n first, or use open(path, around='symbol') or open(path, aroundLine=N).",
-			"open() returns an acknowledgement receipt with file outline and symbols; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Do NOT call read() after open().",
+			"open() returns an acknowledgement receipt with file outline and symbols; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Window contents have no line-number prefixes, and trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Do NOT call read() after open().",
 			"Edits and writes to windowed files are self-verifying and report fresh line numbers and line shift notes automatically.",
 			"Keep windows open while actively working with or referencing files. When a file is no longer needed, close(windowId) or close(path) to free context space.",
 		],
@@ -647,13 +676,13 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 		label: "close",
 		description:
 			"Close live view window(s) created by open(): removed from the LIVE VIEW block and context space is freed. close(windowId) closes one window by id (e.g. 'blue-fox'); close(path) closes all open windows for that file.",
-		promptSnippet: "Close a live-view window and free its context",
+		promptSnippet: "Close live-view window(s) and free context space",
 		promptGuidelines: [
-			"Call close(windowId) or close(path) when you are finished inspecting or editing a file to release it from context and avoid context pressure.",
+			"Call close(windowId) to close a single window, or close(path) to close all open windows for that file when you are finished inspecting or editing to release context space.",
 		],
 		parameters: Type.Object({
 			windowId: Type.Optional(Type.String({ description: "Window id (e.g. 'blue-fox') to close" })),
-			path: Type.Optional(Type.String({ description: "File whose open window(s) to close (relative or absolute). Closes all windows on this file." })),
+			path: Type.Optional(Type.String({ description: "File whose open window(s) to close (relative or absolute). Closes all open windows on this file." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

@@ -22,13 +22,13 @@ open(path)                        whole file, new window (e.g. blue-fox)
 open(path, offset, limit)        line range, new window (e.g. blue-fox)
 open(windowId, offset, limit)    re-range an existing window, keeps its id
 close(windowId)                  close one window by id (e.g. "blue-fox")
-close(path)                      closes it, only if that file has exactly one window
+close(path)                      closes all open windows for that file
 ```
 
 * `open()` returns a confirmation and the range shown — **never the contents**. The contents are already in your context when you read that confirmation: the LIVE VIEW block sits directly after the tool result.
 * Same limits as `read()`: 2000 lines or 50KB, whichever comes first. Use `offset`/`limit` for big files.
 * Window ids are non-ordered color-noun handles (e.g. `blue-fox`). Two windows on one file are fine (`blue-fox` lines 10-50, `amber-otter` lines 500-560).
-* Window contents are raw text with no line-number prefixes — copy them verbatim into `edit` search strings.
+* Window contents are raw text with no line-number prefixes; trailing and repeated whitespace in the block are byte-exact — copy them verbatim into `edit` search strings.
 
 ## Rules while a window is open
 

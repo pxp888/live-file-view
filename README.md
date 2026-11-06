@@ -61,7 +61,7 @@ open("blue-fox", 500, 50)      -> re-ranges blue-fox in place, keeping its id
 
 ### `close(windowId | path)`
 
-`close("blue-fox")` closes window `blue-fox`. `close("src/price.js")` works only when that file has exactly one window — otherwise it fails and lists the ids. Reports how many tokens it freed.
+`close("blue-fox")` closes window `blue-fox`. `close("src/price.js")` closes all open windows for that file. Reports how many tokens it freed.
 
 ## The live-view block
 
@@ -86,7 +86,7 @@ import { RATE } from "./constants";
 <<<<END LIVE VIEW>>>>
 ```
 
-Window contents are raw text with **no per-line number prefixes**, so exact-match search/replace can be copied straight out of the block without prefix or indentation mismatch. The hunk header carries the range.
+Window contents are raw text with **no per-line number prefixes**; trailing and repeated whitespace in the block are byte-exact, so exact-match search/replace can be copied straight out of the block without prefix, indentation, or whitespace mismatch. The hunk header carries the range.
 
 ## Context budget
 
