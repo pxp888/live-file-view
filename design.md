@@ -134,11 +134,10 @@ Compaction is triggered by the extension from `agent_settled` when:
 
 Use `pi.on("context")`, not `context_with_system`. The `context` handler fires before every LLM call and receives the conversation without the system message; when the handler returns a changed list, Pi re-projects its prompt and tool declarations onto the head. So the extension only ever appends — it never owns the prompt, never risks dropping the tool declarations, never has to reimplement Pi's prompt state. `context_with_system` hands over the whole transcript including the head, which is a footgun we do not need.
 
-The block is appended as a single trailing `system` message, after the newest toolResult, so it is the last thing the model reads.
+The block is appended as a single trailing `user` message, after the newest toolResult, so it is the last thing the model reads.
 
-* `system` and not `user`: a `user` block is a conversational turn — the model can answer it, quote it, or treat it as the user speaking. The live view is standing reference material, not a turn. It also avoids two consecutive user messages following a toolResult.
-* pi-ai already handles mid-conversation system messages (`anthropic-messages.js` collects them, `openai-completions.js` passes them through as `role: "system"`). The llama.cpp/Ollama qwen path uses the OpenAI-compatible route, which accepts them.
-* Fallback switch (not implemented yet): if a strict chat template rejects a non-leading system message, drop to `user` role and let the `<<<<LIVE VIEW>>>>` fences do the labelling instead of the role. One boolean, not a config system.
+* `user` and not `system`: llama.cpp does not accept mid-conversation system messages in typical chat templates, so Pi's `collapseSystemMessages` collapses any trailing `system` message into the leading system prompt at index 0. Because the live-view updates dynamically on turns, modifying token 0 invalidates the KV cache / prompt cache prefix for the entire session and forces a full re-evaluation of all previous turns. Emitting the block as a trailing `user` message preserves prefix stability in the KV cache so only the trailing turn is processed.
+* Distinct fences (`<<<<LIVE VIEW>>>>` ... `<<<<END LIVE VIEW>>>>`) and explicit instructions frame the block as standing reference material rather than a conversational turn from the user.
 * The block is never persisted into the session, so it is invisible in the transcript and the TUI. Accepted.
 
 ### open() and close() signatures

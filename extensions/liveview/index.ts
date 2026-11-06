@@ -15,7 +15,7 @@ import { Type } from "typebox";
 /**
  * Live view file tool: open() / close() keep windows into files, and the current
  * contents of those windows are re-read from disk and appended to every request as
- * a trailing system message, so the model never rebuilds a file from old reads + diffs.
+ * a trailing user message, so the model never rebuilds a file from old reads + diffs.
  */
 
 interface LiveWindow {
@@ -63,7 +63,7 @@ let compactionMarker = false; // say "an earlier read may be summarised away" on
 const RESERVE_TOKENS = DEFAULT_COMPACTION_SETTINGS.reserveTokens;
 
 function tok(text: string): number {
-	return estimateTokens({ role: "system", content: text, timestamp: Date.now() });
+	return estimateTokens({ role: "user", content: text, timestamp: Date.now() });
 }
 
 function budget(ctx: ExtensionContext) {
@@ -293,7 +293,7 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 		blockTokens = tok(text);
 		if (compactionMarker) compactionMarker = false;
 	}
-	return { text, tokens: tok(text), message: { role: "system" as const, content: text, timestamp: Date.now() } };
+	return { text, tokens: tok(text), message: { role: "user" as const, content: text, timestamp: Date.now() } };
 }
 
 function range(startLine: number, endLine: number, total: number) {
