@@ -160,3 +160,45 @@ Fast-distilled or "lightning" models with narrow local attention struggle with *
      > *"For workspace files, use open() to maintain a live-view window. read() is intended for images, external files, or static snapshots."*
 4. **Preserve the Explicit Cognition Step (`open` / `close`)**:
    * Do not transparently hijack `read()`. Explicit lifecycle management (`open` to subscribe, `close` to unsubscribe) is essential for agent planning and prevents runaway context leaks.
+
+---
+
+## Follow-Up Evaluation: Extended Real-World Debugging (40+ Turns)
+
+*Environment: Pi session `01a1afb5-9ddf-777c-8e3a-d0544c708db8` running `qwen3.8:27b-ud-q4_k_m` in ponytail mode on an active development task (`/code/talk/listen.py`).*
+
+A critical open question from initial testing was whether `liveview` holds up during prolonged, high-friction development tasks without distracting the model or choking context. In this session, the agent tackled a multi-hour hardware audio debugging problem involving ALSA device selection (UMIK-1 vs. ALC897 analog inputs), channel count constraints, and a subtle C-level glibc `malloc.c` assertion crash triggered inside PortAudio bindings.
+
+---
+
+### 1. Cognitive Load & Model Reasoning Impact
+
+* **Zero Harness Distraction:**
+  Over 40+ turns involving roughly 30 terminal commands (`cat /proc/asound/...`, `arecord -L`, python one-liner probe scripts), the model's chain-of-thought was focused exclusively on domain debugging: ALSA subdevices, PyAudio ctypes bindings, buffer sizes, and fallback logic. The model did not battle the harness, complain about window mechanics, or get sidetracked by window accounting. `liveview` functioned as invisible, reliable infrastructure.
+
+* **Eradication of "Post-Edit Paranoia":**
+  In earlier sessions, the model exhibited severe post-edit distrust—running redundant bash checks (`sed -n ... | cat -A`) immediately after modifying files to verify that indentation, offsets, and line endings survived the edit tool. In this updated build, the extension's inline verification response:
+  ```
+  [liveview] Verified in window cyan-koala, teal-moose: touched range: lines 21–35 (+4 shift)
+  ```
+  completely resolved this paranoia. The model trusted the reported diff and line shifts instantly, moving straight to testing and execution on every turn without a single redundant verification command.
+
+* **Additive Attention vs. Destructive Reframing:**
+  When panning to lines 130–186 of `listen.py`, the model naturally called `open(offset=130, limit=77)` without supplying `windowId`, spawning an overlapping second window (`teal-moose`) alongside `cyan-koala`. 
+  - While the model noted this in its end-of-session reflection (*"Small self-inflicted wart: I opened a second window that overlapped the first instead of re-ranging one..."*), it caused zero operational confusion.
+  - The live-edit verification engine cleanly updated and tracked shifts across both windows simultaneously.
+  - This validated the **"Better to have it and not need it"** principle: defaulting to additive windows prevents accidental context eviction (where scrolling down would silently destroy imports or function signatures at lines 1–50 that the model still needs in active attention).
+
+---
+
+### 2. Effect on Context Consumption & Compaction Dynamics
+
+* **Elimination of Conversation History Bloat:**
+  In a traditional agent harness, every file inspection, re-read, and edit dumps a static snapshot of the file into the immutable conversation history. In a 40-turn session inspecting and editing a 250-line file multiple times, static reads typically inject **20,000–30,000 tokens of dead historical duplicate snapshots** into the transcript.
+
+* **Ephemeral Context Footprint:**
+  With `liveview`, `listen.py` existed only once at any point in time: in the trailing ephemeral `LIVE VIEW` block. Even with two overlapping windows open, the total file payload remained capped at **~2,400 tokens (~2–3% of total context capacity)** throughout the entire session.
+
+* **Maximized Headroom for Dense Tool I/O:**
+  Because file context was decoupled from history, the agent preserved tens of thousands of tokens of headroom. This headroom directly accommodated extensive ALSA device dumps, hardware capability matrices, and python traceback outputs between compaction events without forcing lossy summarization or premature context eviction.
+
