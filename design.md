@@ -92,7 +92,7 @@ A sample view is below:
 
 #### How to handle content drift within a window is decided — see "drift inside a window" in the implementing notes.
 
-*A window is only a line range into the file's current state: refresh re-reads those offsets, edit events do not shift windows, and the header says when the file changed since the last refresh. No edit-event machinery.*
+*A window is only a line range into the file's current state: refresh re-reads those offsets, edit events do not shift windows, and the header says when the file changed since the last refresh. A small `tool_result` handler adds a verification note after edits/writes that touch an open file (see "drift inside a window").*
 
 ### Content formatting and line numbering
 
@@ -122,11 +122,11 @@ open calls should fail with a warning to close windows or reduce their size if:
 
 The warning itself should state that context is limited, and suggest possible actions.  It should also mention that not reducing the window will result in earlier compaction.  
 
-Compaction of the normal context should be triggered when: 
+Compaction is triggered by the extension from `agent_settled` when:
 
-* the normal context exceeds (contextLimit - reserveTokens) * 2/3 
+* context tokens + live-view size + reserveTokens > contextLimit.
 
-* context + live-view size + reserveTokens > contextLimit 
+(The earlier proposal to also compact once normal context alone exceeds (contextLimit − reserveTokens) × 2/3 was not implemented — only the total condition fires, and Pi's own checks cover pure-history growth in practice.)
 
 ## implementing notes
 
@@ -138,17 +138,18 @@ The block is appended as a single trailing `system` message, after the newest to
 
 * `system` and not `user`: a `user` block is a conversational turn — the model can answer it, quote it, or treat it as the user speaking. The live view is standing reference material, not a turn. It also avoids two consecutive user messages following a toolResult.
 * pi-ai already handles mid-conversation system messages (`anthropic-messages.js` collects them, `openai-completions.js` passes them through as `role: "system"`). The llama.cpp/Ollama qwen path uses the OpenAI-compatible route, which accepts them.
-* Fallback switch: if a strict chat template rejects a non-leading system message, drop to `user` role and let the `<<<<LIVE VIEW>>>>` fences do the labelling instead of the role. One boolean, not a config system.
+* Fallback switch (not implemented yet): if a strict chat template rejects a non-leading system message, drop to `user` role and let the `<<<<LIVE VIEW>>>>` fences do the labelling instead of the role. One boolean, not a config system.
 * The block is never persisted into the session, so it is invisible in the transcript and the TUI. Accepted.
 
 ### open() and close() signatures
 
 * `open(path, offset, limit)` — same parameter shape as `read()`: 1-based `offset`, `limit` in lines, same 2000 line / 50kb limits, whichever comes first.
-* `open()` returns a confirmation only, never file contents: that the file was opened, the window ID, and the range now shown.
+* Aiming parameters: `around="symbol"` centers the window on the first (case-insensitive) occurrence of that text; `aroundLine=N` does the same for a line number. Both default to a 60-line window when no `limit` is given.
+* `open()` returns an acknowledgement receipt, never file contents: confirmation plus window ID and range now shown, an outline of major symbols in the file (headings, functions, classes), the token budget state, a duplicate-window note if another window covers the same file, and a pressure warning once the live view passes 75% of its cap.
 * Opening a different range of the same file creates a new window with a new unique ID.
-* Altering an existing window requires its ID: `open(windowId, offset, limit)`. The ID is kept; the window is re-ranged, not replaced.
-* Reject images. Only plain text files get windows.
-* `close(id)` closes one window. `close(filename)` works only when that file has exactly one window; otherwise it fails and lists the window IDs.
+* Altering an existing window requires its ID: `open(windowId, offset, limit)`. The ID is kept; the window is re-ranged, not replaced. Passing both `windowId` and `path` moves the window to a different file (ID kept).
+* Reject non-text files via a null-byte check on the content (this also rejects images). Only plain text files get windows.
+* `close(id)` closes one window. `close(path)` closes all open windows for that path and reports how many tokens were freed; it fails only when no window matches, listing the open windows.
 
 ### token accounting and compaction
 
@@ -160,19 +161,23 @@ The block is appended as a single trailing `system` message, after the newest to
 * Compaction is triggered by the extension from `agent_settled` when `contextTokens + blockTokens + reserveTokens > contextLimit`, via `ctx.compact()`. Pi cannot see the block, so Pi's own checks will not fire in time.
 * Not from the `context` handler: `ctx.compact()` is Pi's manual entry point, and it aborts the agent operation it is called during without retrying the turn (`AgentSession.compact()` starts with `await this.abort()`). `agent_settled` fires after the run is marked inactive, so `ctx.isIdle()` is true and nothing in flight is lost.
 * Guard against a second compaction while one is running (`compacting` flag plus `ctx.isIdle()`). `ctx.compact()` does not await, so it will not deadlock, but a summariser call kicked off mid-flight must not stack. In single-shot print mode Pi disposes the runtime as soon as the prompt returns, so a settle-time compaction can be cut off there; in interactive/RPC use it completes.
-* Absolute cap in the block builder as well as the `open()` gate: if the block alone is huge, compacting the normal context cannot help, and shrinking windows is the only lever left. Truncate the window and say so in its header.
+* Absolute cap in the block builder as well as the `open()` gate: if the block alone is huge, compacting the normal context cannot help, and shrinking windows is the only lever left. Truncate the window and say so in its header; if even one line does not fit, the window is skipped entirely and the block header says how many windows were hidden.
 
 ### drift inside a window
 
-A window is a line range into the file's current state, nothing more. Each refresh re-reads those offsets from disk; nothing is shifted or tracked when the file changes, and edits do not move windows.
+A window is a line range into the file's current state, nothing more. Each refresh re-reads those offsets from disk; edits do not move windows.
 
-If the file changed since the last refresh, say so in the window header:
+If the file changed since the last refresh (mtime/size stat key differs), say so in the window header:
 
 ```
 red-weasel  src/price.js  lines 500-549 of 2400 (file changed since last refresh)
 ```
 
-No edit-event machinery. The model re-adjusts the window itself when the offsets no longer cover what it needs.
+The model re-adjusts the window itself when the offsets no longer cover what it needs.
+
+#### edit/write verification notes
+
+A `tool_result` handler watches successful `edit` and `write` calls whose target path has an open window. On a hit it reads the post-change file from disk and appends a numbered snippet to that tool result: for edits, lines around the first changed line with the net line shift; for writes, the first 20 lines of the new file. The next refresh also flags affected windows in their header (`changed: lines X–Y (+N shift)`). Deliberately small: one note per mutation, no ongoing edit tracking.
 
 ### state lifetime
 
@@ -194,7 +199,7 @@ Keep the code as simple as possible, do not add guardrails that are not currentl
 
 The open() tool should have the same size limits as read().  Same number of lines or bytes returned in one call.  The model is free to make multiple calls, just as it can with read().
 
-At this point, do not introduce mechanics to try and 'force' a model to use the tool.
+The open() prompt guidelines steer hard towards open() over read() ("Do NOT call read() on text files in the workspace"), not merely "preferred" as originally written — that is the one deliberate exception to this rule.
 
 do not place the extension file in the active extension folder yet.  create it in the project root.  
 
