@@ -4,6 +4,10 @@
 
 
 
+**UPDATE** - this first test was done when the live-view was appended to the end of the system prompt.  The extension has been updated to append the live-view at session end as a user message.  Since then, even nemotron 3.5 lightning uses the tool without an issue.  Results below are effectively stale. 
+
+
+
 This document summarizes exploratory testing of the `liveview` extension across multiple open-weight models running locally via `thinkfarm`. Each model was tested against workspace inspection tasks (reading `README.md` and `design.md`), evaluating tool adoption (`open()` vs `read()`), comprehension of the decoupled `LIVE VIEW` block, window lifecycle management (`close()`), and qualitative feedback on the interface design.
 
 ---
@@ -87,9 +91,11 @@ When asked if leaving windows open was intentional:
 #### Metacognition & Self-Correction
 
 * When asked if it had read the skill file, it opened `.pi/skills/liveview/SKILL.md` (`red-bear`).
+
 * Upon inspecting context, it had an immediate realization in its thinking trace:
   
   > *"Wait — the skill file was already in my context from turn 1... That window was `red-bear`, listed in the first request's LIVE VIEW block before I made any tool call. The extension auto-opened it!"*
+
 * It candidly informed the user that it had been passively carrying the skill content all along.
 
 #### Critical Bug Identification
@@ -145,8 +151,11 @@ Fast-distilled or "lightning" models with narrow local attention struggle with *
 ## Action Items & Recommendations for `liveview`
 
 1. **Align Documentation Examples with Runtime Slugs**:
+   
    * Replace all instances of `W1`, `open(1, ...)`, and `close(3)` in `README.md` and `SKILL.md` with color-noun slugs (e.g. `open("blue-fox", ...)`).
+
 2. **Actionable Context Pressure Nudges**:
+   
    * When approaching the 2/3 working cap, format warnings as a ranked list of open windows sorted by token weight:
      
      ```
@@ -154,11 +163,15 @@ Fast-distilled or "lightning" models with narrow local attention struggle with *
      1. design.md (teal-tiger) — 3,752 tokens
      2. README.md (emerald-owl) — 1,970 tokens
      ```
+
 3. **Clarify the Boundary of `read()`**:
+   
    * Prevent small models from reflexively calling `read()` by updating `read()`'s description to specify:
      
      > *"For workspace files, use open() to maintain a live-view window. read() is intended for images, external files, or static snapshots."*
+
 4. **Preserve the Explicit Cognition Step (`open` / `close`)**:
+   
    * Do not transparently hijack `read()`. Explicit lifecycle management (`open` to subscribe, `close` to unsubscribe) is essential for agent planning and prevents runaway context leaks.
 
 ---
@@ -178,13 +191,16 @@ A critical open question from initial testing was whether `liveview` holds up du
 
 * **Eradication of "Post-Edit Paranoia":**
   In earlier sessions, the model exhibited severe post-edit distrust—running redundant bash checks (`sed -n ... | cat -A`) immediately after modifying files to verify that indentation, offsets, and line endings survived the edit tool. In this updated build, the extension's inline verification response:
+  
   ```
   [liveview] Verified in window cyan-koala, teal-moose: touched range: lines 21–35 (+4 shift)
   ```
+  
   completely resolved this paranoia. The model trusted the reported diff and line shifts instantly, moving straight to testing and execution on every turn without a single redundant verification command.
 
 * **Additive Attention vs. Destructive Reframing:**
   When panning to lines 130–186 of `listen.py`, the model naturally called `open(offset=130, limit=77)` without supplying `windowId`, spawning an overlapping second window (`teal-moose`) alongside `cyan-koala`. 
+  
   - While the model noted this in its end-of-session reflection (*"Small self-inflicted wart: I opened a second window that overlapped the first instead of re-ranging one..."*), it caused zero operational confusion.
   - The live-edit verification engine cleanly updated and tracked shifts across both windows simultaneously.
   - This validated the **"Better to have it and not need it"** principle: defaulting to additive windows prevents accidental context eviction (where scrolling down would silently destroy imports or function signatures at lines 1–50 that the model still needs in active attention).
@@ -201,4 +217,3 @@ A critical open question from initial testing was whether `liveview` holds up du
 
 * **Maximized Headroom for Dense Tool I/O:**
   Because file context was decoupled from history, the agent preserved tens of thousands of tokens of headroom. This headroom directly accommodated extensive ALSA device dumps, hardware capability matrices, and python traceback outputs between compaction events without forcing lossy summarization or premature context eviction.
-

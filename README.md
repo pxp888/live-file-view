@@ -131,8 +131,18 @@ This extension is targeted at local inference where this is not too much of an i
 
 ## Initial test results
 
-Initial (quick) test results are [here](initial_test.md)
+There seems to be no significant logical load on the model when using the extension.  
 
-This was a very quick initial test. None of the models were tested to the point of compaction. This was just to see if they understood and worked with the concept of live-view windows. Much more rigorous testing is needed, but initial results look very promising.
+After some tweaking, models seem to find the window easy to work with and trust the current state.  
 
-There is a reasoning floor required, but 4 of the 5 models initially tested seemed to work just fine with the live-view window.  Only nemotron 3.5 lightning got confused by the concept and immediately fell back to read().  This seems to be an architecture related issue.  Spark x2.6, which is only a 4B model didn't have an issue, while nemotron at 30B did.  
+[Here](live-view-v2-test1.html) is a exported session of qwen3.8-flash-next working through an hardware problem with an admittedly small file.  It ran for over 30 turns, editing and testing things.  
+
+It did not need to re-read the file at all, and the file itself consumed less than 2% of the context, and never grew.  It did not spend any time or effort second guessing the mechanics of the extension.  
+
+More testing is needed, but it seems that the three primary goals are actually working.  
+
+- The models don't need to reconstruct current state from read() plus diffs.  
+- There isn't any significant reasoning overhead.  
+- It does reduce context use as intended.  
+
+
