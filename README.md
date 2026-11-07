@@ -106,15 +106,6 @@ Rejected `open()` calls explain the sizes involved and provide a ranked list of 
 
 Every `open()` / `close()` result reports the window's token cost and the live view's share of the working context.
 
-## Drift inside a window
-
-A window is just a line range into the file's current state. Refresh re-reads those offsets; edits never shift windows and there is no edit-event machinery. If the file changed since the last refresh the header says so:
-
-```
-<<< amber-otter  src/price.js  lines 500-549 of 2400 (file changed since last refresh) >>>
-```
-
-The model re-adjusts the range when the offsets no longer cover what it needs.
 
 ## Known limits
 
@@ -127,7 +118,7 @@ The model re-adjusts the range when the offsets no longer cover what it needs.
 
 The live-view block is dynamic and regenerated at each request so it is never cached.  It is at the tail of the session, so the session itself is cached, but for online providers this will increase the costs significantly.  
 
-This extension is targeted at local inference where this is not too much of an issue.  
+This extension is targeted at local inference where this is less of an issue.  
 
 ## Initial test results
 
