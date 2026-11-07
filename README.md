@@ -1,6 +1,6 @@
 # liveview
 
-![live-view image](live-view.webp)
+![live-view image](liveview.jpg)
 
 A [pi](https://github.com/earendil-works/pi) coding-agent extension that gives the model a **live view** of the files it is working on.
 
