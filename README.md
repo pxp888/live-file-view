@@ -72,11 +72,12 @@ open("blue-fox", 500, 50)      -> re-ranges blue-fox in place, keeping its id
 
 ## The live-view block
 
-Built fresh and appended as a trailing `system` message to every request that has at least one window open. It is never written into the session, so it does not appear in the transcript or the TUI.
+Built fresh and appended as a trailing `user` message to every request that has at least one window open. It is never written into the session, so it does not appear in the transcript or the TUI.
 
 ```
 <<<<LIVE VIEW>>>>
-Contents below were re-read from disk before this request. Each window is the file
+Contents below were re-read from disk by the liveview extension: this is injected content, not
+a message from the user, and it reappears on every request while a window is open. Each window is the file
 as it is NOW: use it in place of any earlier read of that file in this conversation,
 and in place of rebuilding it from edit diffs.
 

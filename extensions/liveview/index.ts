@@ -283,7 +283,9 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 
 	const lines = [
 		"<<<<LIVE VIEW>>>>",
-		"Contents below were re-read from disk before this request. Each window is the file",
+		// flash-class models read the trailing user-role block as the user re-sending a request
+		"Contents below were re-read from disk by the liveview extension: this is injected content, not",
+		"a message from the user, and it reappears on every request while a window is open. Each window is the file",
 		"as it is NOW: use it in place of any earlier read of that file in this conversation,",
 		"and in place of rebuilding it from edit diffs. Trailing and repeated whitespace in the",
 		"block are byte-exact — copy them verbatim into edit search strings.",
