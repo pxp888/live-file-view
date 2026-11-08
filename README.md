@@ -96,13 +96,15 @@ With `reserveTokens` from pi's compaction settings (16384 by default) and `worki
 
 | Rule                      | Threshold                                                     |
 | ------------------------- | ------------------------------------------------------------- |
-| Max live view             | `working * 2/3` — `open()` fails above it                     |
-| Compaction triggers       | `contextTokens + blockTokens + reserveTokens > contextWindow` |
-| Minimum live-view reserve | `working * 1/3`                                               |
+| Max live view             | `max(working * 2/3, 20k)`, clamped to `working` — `open()` fails above it |
+| Compaction triggers       | `contextTokens + blockTokens + reserveTokens > contextWindow`, or `working - contextTokens < 20k` while the block itself is under 20k |
+| Minimum live-view reserve | `MIN_LIVE_TOKENS = 20k`, enforced while `working ≥ 40k` (small contexts fall back to the overflow rule) |
 
 Compaction is requested from `agent_settled`, once the run has settled. It is deliberately not requested from the `context` handler: `ctx.compact()` is pi's manual compaction entry point, which aborts the agent operation it is called during and never resumes that turn.
 
 Rejected `open()` calls explain the sizes involved and provide a ranked list of open windows sorted by token weight, recommending the best candidates to `close()` or shrink (`open(windowId, offset, limit)`). A compaction guard prevents a second summariser call stacking on top of one already running. If the block alone exceeds the cap, windows are truncated and the header says so — shrinking is the only lever left, since compacting the conversation cannot help.
+
+The live view is never allowed to be the thing that starves: 20k tokens of the working space are reserved for it, so a block too small to show the problem cannot leave the model working blind until the conversation happens to overflow. Once a turn settles, an over-large conversation is compacted to give that reserve back.
 
 Every `open()` / `close()` result reports the window's token cost and the live view's share of the working context.
 

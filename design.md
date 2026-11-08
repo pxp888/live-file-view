@@ -112,11 +112,13 @@ At the other end of the spectrum we don't want to get into a position where the 
 
 I would propose a maximum live-view size of (contextLimit - reserveTokens) * 2/3 .  At that point any open() call should fail with a message to either close or reduce window sizes.  This also guarantees a minimum workable context available to the model.  
 
-I would also set a minimum live-view reserve size of (contextLimit - reserveTokens) * 1/3 .  This also defines the maximum normal context size at (contextLimit - reserveTokens) * 2/3 . 
+I would also set a minimum live-view reserve size of (contextLimit - reserveTokens) * 1/3 .  This also defines the maximum normal context size at (contextLimit - reserveTokens) * 2/3 .
+
+Implemented as a fixed floor instead: `MIN_LIVE_TOKENS = 20000`. The live-view cap is `max((contextLimit - reserveTokens) * 2/3, 20000)` clamped to the working space, and the conversation must leave those 20k free. The 1/3 formulation is too weak on small contexts (a 32k model would get a ~10k block, which cannot show a real problem), and a fixed 20k is what the block actually needs. The reserve is only *enforced* by compaction when `working ≥ 2 * MIN_LIVE_TOKENS`, so mid-size contexts are not compacted every turn.
 
 open calls should fail with a warning to close windows or reduce their size if: 
 
-* the new window would extend the live-view beyond (contexLimit - reserveTokens)*2/3  
+* the new window would extend the live-view beyond max((contexLimit - reserveTokens)*2/3, MIN_LIVE_TOKENS)
 
 * the new window plus existing context exceeds contextLimit - reserveTokens. 
 
@@ -125,8 +127,9 @@ The warning itself should state that context is limited, and suggest possible ac
 Compaction is triggered by the extension from `agent_settled` when:
 
 * context tokens + live-view size + reserveTokens > contextLimit.
+* live-view reserve crowded: `working - contextTokens < MIN_LIVE_TOKENS` while the block itself is below `MIN_LIVE_TOKENS` (only checked when `working ≥ 2 * MIN_LIVE_TOKENS`). History gives way, not the windows.
 
-(The earlier proposal to also compact once normal context alone exceeds (contextLimit − reserveTokens) × 2/3 was not implemented — only the total condition fires, and Pi's own checks cover pure-history growth in practice.)
+(The earlier proposal to also compact once normal context alone exceeds (contextLimit − reserveTokens) × 2/3 was not implemented — the check is the live-view reserve above, and Pi's own checks cover pure-history growth in practice.)
 
 ## implementing notes
 
@@ -156,8 +159,8 @@ The block is appended as a single trailing `user` message, after the newest tool
 
 * `blockTokens = estimateTokens(blockText)`, computed in the `context` handler that builds the block, and cached for the turn so `open()` can report it without re-estimating.
 * `contextTokens` comes from `ctx.getContextUsage()` (Pi's own estimate covers trailing messages).
-* `open()` gate: fail when `existing block + new window > (contextLimit - reserveTokens) * 2/3`.
-* Compaction is triggered by the extension from `agent_settled` when `contextTokens + blockTokens + reserveTokens > contextLimit`, via `ctx.compact()`. Pi cannot see the block, so Pi's own checks will not fire in time.
+* `open()` gate: fail when `existing block + new window > max((contextLimit - reserveTokens) * 2/3, MIN_LIVE_TOKENS)` (clamped to `contextLimit - reserveTokens`).
+* Compaction is triggered by the extension from `agent_settled` when `contextTokens + blockTokens + reserveTokens > contextLimit`, or when the conversation leaves less than `MIN_LIVE_TOKENS` of the working space for the block, via `ctx.compact()`. Pi cannot see the block, so Pi's own checks will not fire in time.
 * Not from the `context` handler: `ctx.compact()` is Pi's manual entry point, and it aborts the agent operation it is called during without retrying the turn (`AgentSession.compact()` starts with `await this.abort()`). `agent_settled` fires after the run is marked inactive, so `ctx.isIdle()` is true and nothing in flight is lost.
 * Guard against a second compaction while one is running (`compacting` flag plus `ctx.isIdle()`). `ctx.compact()` does not await, so it will not deadlock, but a summariser call kicked off mid-flight must not stack. In single-shot print mode Pi disposes the runtime as soon as the prompt returns, so a settle-time compaction can be cut off there; in interactive/RPC use it completes.
 * Absolute cap in the block builder as well as the `open()` gate: if the block alone is huge, compacting the normal context cannot help, and shrinking windows is the only lever left. Truncate the window and say so in its header; if even one line does not fit, the window is skipped entirely and the block header says how many windows were hidden.
