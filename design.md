@@ -215,13 +215,11 @@ This prevents duplicating file content.
 
 Standard Compaction takes places without the compacting agent being aware of the live-view behavior.  The compaction marker in the implementing notes covers the part that mattered (the model forgetting the block exists), so a custom routine is not needed unless compaction itself starts cutting into work we still need.
 
-### the skills file
+### the skills file (dropped)
 
-A skills file explaining how open() can be much better than read() would be useful.  When a file is read() it is burned into context forever.  An open() file can be 'closed', which releases context.  This means a model could search a volume greater than the context window would normally allow.  
+The behaviours a skills file would teach are worth having: a read() is burned into context forever, while an open() window can be closed or shrunk, so a model can survey far more files than the context window would normally hold, and release files it has finished with (boilerplate edited once, config, scaffolding).  In theory a model accomplishes much more before compaction.
 
-The other behavior that is possible is to close() a completed file. (or just shrink its window.)  If a model has finished boilerplate for example, and is unlikely to touch that file again, it can be closed.  
-
-This means in theory a model could accomplish much more before compaction than it normally would.  
+That guidance now lives in the open() tool's promptGuidelines instead of a SKILL.md.  Tool descriptions and guidelines are in context on every request whenever the extension is loaded, while a skill body is only read on demand — and a skill whose description says 'use open() instead of read()' is only ever read by a model that already does.  A shipped skill also costs a line in the available-skills list on every request, and duplicated the same rules in two places to maintain.
 
 ## other notes
 

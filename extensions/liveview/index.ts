@@ -513,7 +513,8 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 			"Workflow: for files under ~500 lines, open(path) without limit to view the whole file (~9 tokens/line). For larger files, locate with grep -n first, or use open(path, around='symbol') or open(path, aroundLine=N).",
 			"open() returns an acknowledgement receipt with file outline and symbols; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Window contents have no line-number prefixes, and trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Do NOT call read() after open().",
 			"Edits and writes to windowed files are self-verifying and report fresh line numbers and line shift notes automatically.",
-			"Keep windows open while actively working with or referencing files. When a file is no longer needed, close(windowId) or close(path) to free context space.",
+			"Keep windows open while actively working with or referencing files, and close late rather than out of hand: close(windowId) or close(path) when a file's work is done (boilerplate, config, a file edited once) or when the live-view budget pushes back, not pre-emptively.",
+			"Survey more files than fit in context: open a candidate, judge it, note the finding in your reply, then close() the files you ruled out — a rejected file has no future value, but the open/close calls stay in the session so you keep the conclusion without carrying the bytes. Narrow a wide window to the working region with open(windowId, offset, limit) once locating has served its purpose.",
 		],
 		parameters: Type.Object({
 			path: Type.Optional(Type.String({ description: "File to open (relative or absolute). Omit when re-ranging an existing window." })),

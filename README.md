@@ -34,14 +34,11 @@ Design rationale is in [`design.md`](./design.md); the implementation is a singl
 
 ## Run it
 
-Drop the liveview extension folder in .pi/extensions if you want it project local.  
+Drop the liveview extension folder in .pi/extensions if you want it project local:  
 
-Same with .pi/skills.  
-
-The final paths should look like: 
-
-    project_folder/.pi/skills/liveview/SKILL.md
     project_folder/.pi/extensions/liveview/index.ts
+
+No skill file is needed — everything the model must know is in the `open`/`close` tool descriptions and their `promptGuidelines`, which are in context whenever the extension is loaded.
 
 # Tools
 
