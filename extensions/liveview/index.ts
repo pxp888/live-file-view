@@ -64,7 +64,7 @@ const RESERVE_TOKENS = DEFAULT_COMPACTION_SETTINGS.reserveTokens;
 
 // Live-view reserve: below this the block cannot hold enough of a file to show the problem,
 // and the model is left working blind until compaction frees the context.
-const MIN_LIVE_TOKENS = 20000;
+const LIVE_RESERVE_TOKENS = 20000;
 
 function tok(text: string): number {
 	return estimateTokens({ role: "user", content: text, timestamp: Date.now() });
@@ -73,19 +73,12 @@ function tok(text: string): number {
 function budget(ctx: ExtensionContext) {
 	const contextWindow = ctx.getContextUsage()?.contextWindow ?? ctx.model?.contextWindow ?? 128000;
 	const working = Math.max(1000, contextWindow - RESERVE_TOKENS);
-	const share = Math.floor((working * 2) / 3);
-	// Cap is 2/3 of the working space, but never below the live-view reserve (clamped to what a
-	// small context actually has). liveReserve is what the conversation must leave free for the
-	// block; enforced only where the context can also keep 20k for the conversation, otherwise it
-	// would compact every turn (small contexts fall back to the overflow rule alone).
-	const maxLive = Math.max(share, Math.min(MIN_LIVE_TOKENS, working));
-	const liveReserve = working >= 2 * MIN_LIVE_TOKENS ? MIN_LIVE_TOKENS : 0;
-	return { contextWindow, working, share, maxLive, liveReserve };
-}
-
-function capNote(b: ReturnType<typeof budget>) {
-	if (b.maxLive === b.share) return `(context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3`;
-	return `live-view reserve ${MIN_LIVE_TOKENS}, above the 2/3 share (${b.share}) and capped at the ${b.working} token working space`;
+	const maxLive = Math.floor((working * 2) / 3);
+	// What the conversation must leave free for the block. Required only where the context can
+	// also keep 20k for the conversation - below that it would compact every turn - which is also
+	// where maxLive already exceeds the reserve, so the reserve always sits inside the cap.
+	const liveReserve = working >= 2 * LIVE_RESERVE_TOKENS ? LIVE_RESERVE_TOKENS : 0;
+	return { contextWindow, working, maxLive, liveReserve };
 }
 
 function displayPath(path: string, cwd: string): string {
@@ -321,7 +314,7 @@ function head(w: LiveWindow, startLine: number, endLine: number, total: number, 
 }
 
 function sizeReport(b: ReturnType<typeof budget>) {
-	return `live view ~${blockTokens} tokens, cap ${b.maxLive} (${capNote(b)})`;
+	return `live view ~${blockTokens} tokens, cap ${b.maxLive} (2/3 of the ${b.working} token working space${b.liveReserve ? `, ${b.liveReserve} tokens reserved for the live view` : ""})`;
 }
 
 async function getRankedWindows(ctx: ExtensionContext) {
@@ -633,7 +626,7 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 			if (existing + windowTokens > b.maxLive) {
 				const ranked = await getRankedWindows(ctx);
 				return bail(
-					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap (${capNote(b)}).${formatRankedList(ranked)}\nClose windows with close(windowId), or shrink them with open(windowId, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
+					`open failed: this window (~${windowTokens} tokens) would put the live view at ~${existing + windowTokens}, over the ${b.maxLive} token cap ((context window ${b.contextWindow} - ${RESERVE_TOKENS} reserve) * 2/3).${formatRankedList(ranked)}\nClose windows with close(windowId), or shrink them with open(windowId, offset, limit). Leaving the live view this big forces compaction of the conversation sooner.`,
 				);
 			}
 			const contextTokens = ctx.getContextUsage()?.tokens ?? 0;
