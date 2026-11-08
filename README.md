@@ -32,6 +32,16 @@ Again, the tool calls still live in session so the model knows it opened, edited
 
 Design rationale is in [`design.md`](./design.md); the implementation is a single file, [index.ts](extensions/liveview/index.ts)
 
+
+
+There is a cost associated with this.  The uncached input tokens jumps because the live-view is fresh on every request.  if you have a provider that discounts cached input tokens this could cost 2-4x as much.   
+
+There is a genuine context savings because the 'read' of source files is only paid for once in the final context, or its free if the model closes a file it's done with.  So it does enable a model to work more than its context window would normally allow.  
+
+
+
+
+
 ## Run it
 
 Drop the liveview extension folder in .pi/extensions if you want it project local:  
@@ -91,11 +101,11 @@ pi cannot see the block, so its own compaction checks would not fire in time —
 
 With `reserveTokens` from pi's compaction settings (16384 by default) and `working = contextWindow - reserveTokens`:
 
-| Rule                      | Threshold                                                     |
-| ------------------------- | ------------------------------------------------------------- |
-| Max live view             | `working * 2/3` — `open()` fails above it                     |
+| Rule                      | Threshold                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Max live view             | `working * 2/3` — `open()` fails above it                                                                                             |
 | Compaction triggers       | `contextTokens + blockTokens + reserveTokens > contextWindow`, or `working - contextTokens < 20k` while the block itself is under 20k |
-| Minimum live-view reserve | `LIVE_RESERVE_TOKENS = 20k`, enforced while `working ≥ 40k` (small contexts fall back to the overflow rule) |
+| Minimum live-view reserve | `LIVE_RESERVE_TOKENS = 20k`, enforced while `working ≥ 40k` (small contexts fall back to the overflow rule)                           |
 
 Compaction is requested from `agent_settled`, once the run has settled. It is deliberately not requested from the `context` handler: `ctx.compact()` is pi's manual compaction entry point, which aborts the agent operation it is called during and never resumes that turn.
 
@@ -104,7 +114,6 @@ Rejected `open()` calls explain the sizes involved and provide a ranked list of 
 The live view is never allowed to be the thing that starves: 20k tokens of the working space are reserved for it (where the context is big enough to afford it), so a block too small to show the problem cannot leave the model working blind until the conversation happens to overflow. Once a turn settles, an over-large conversation is compacted to give that reserve back.
 
 Every `open()` / `close()` result reports the window's token cost and the live view's share of the working context.
-
 
 ## Known limits
 
@@ -118,6 +127,8 @@ Every `open()` / `close()` result reports the window's token cost and the live v
 The live-view block is dynamic and regenerated at each request so it is never cached.  It is at the tail of the session, so the session itself is cached, but for online providers this will increase the costs significantly.  
 
 This extension is targeted at local inference where this is less of an issue.  
+
+
 
 ## Initial test results
 
@@ -134,5 +145,3 @@ More testing is needed, but it seems that the three primary goals are actually w
 - The models don't need to reconstruct current state from read() plus diffs.  
 - There isn't any significant reasoning overhead.  
 - It does reduce context use as intended.  
-
-
