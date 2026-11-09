@@ -241,12 +241,6 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 		if (info.empty) flags.push("offset beyond end of file");
 		if (info.firstLineTooBig) flags.push(`line ${startLine} is ${formatSize(DEFAULT_MAX_BYTES)}, over the read limit`);
 		else if (info.sizeCut) flags.push(`cut at the ${formatSize(DEFAULT_MAX_BYTES)} read limit`);
-		if (!info.empty && text) {
-			const trailingWsCount = text.split("\n").filter((l) => /[ \t]+$/.test(l)).length;
-			if (trailingWsCount > 0) {
-				flags.push(`${trailingWsCount} line${trailingWsCount === 1 ? " has" : "s have"} trailing whitespace`);
-			}
-		}
 
 		// Absolute cap: shrinking windows is the only lever left once the block itself is too big.
 		let chunk = `${head(w, startLine, endLine, info.total, flags)}\n${text}\n<<</${w.id}>>>`;
@@ -287,10 +281,9 @@ async function buildBlock(ctx: ExtensionContext, commit = true) {
 		"Contents below were re-read from disk by the liveview extension: this is injected content, not",
 		"a message from the user, and it reappears on every request while a window is open. Each window is the file",
 		"as it is NOW: use it in place of any earlier read of that file in this conversation,",
-		"and in place of rebuilding it from edit diffs. Trailing and repeated whitespace in the",
-		"block are byte-exact — copy them verbatim into edit search strings.",
+		"and in place of rebuilding it from edit diffs. Copy lines directly into edit() oldText anchors.",
 		"",
-		`${chunks.length} window${chunks.length === 1 ? "" : "s"} · ${linesShown} lines shown · this block is ${Math.round((usedTokens / b.working) * 100)}% of the space left in this context`,
+		`${chunks.length} window${chunks.length === 1 ? "" : "s"} · ${linesShown} lines shown`,
 		...index,
 	];
 	if (skipped > 0) lines.push(`${skipped} window(s) not shown: live-view budget exhausted. Close or shrink windows.`);
@@ -506,15 +499,15 @@ export default function (pi: ExtensionAPI) {
 Recommended workflow:
 - open(windowId, offset, limit) re-ranges an existing window, keeping its id.
 
-Returns an acknowledgement receipt only (window id, range, outline symbols, and token budget), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Window contents are raw text with no line numbers: trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
+Returns an acknowledgement receipt (window id, range, outline symbols), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Window contents are raw text with no line numbers: copy text directly into edit() oldText anchors. For deleting blocks or classes, use edit() with unique start/end anchors and empty newText. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first.`,
 		promptSnippet: "Open a live-view window on a file (refreshed on every request)",
 		promptGuidelines: [
 			"Always prefer open() over read() for any text file you want to inspect, view, review, check, or edit. Do NOT call read() on text files in the workspace.",
 			"open(path, around='symbol') and open(path, aroundLine=N) aim a window directly at a region.",
-			"open() returns an acknowledgement receipt with file outline and symbols; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Window contents have no line-number prefixes, and trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Do NOT call read() after open().",
+			"open() returns an acknowledgement receipt with file outline and symbols; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Window contents have no line-number prefixes: copy text directly into edit() oldText. Do NOT call read() after open().",
 			"Edits and writes to windowed files are self-verifying and report fresh line numbers and line shift notes automatically.",
-			"Keep windows open while actively working with or referencing files, and close late rather than out of hand: close(windowId) or close(path) when a file's work is done (boilerplate, config, a file edited once) or when the live-view budget pushes back, not pre-emptively.",
-			"Survey more files than fit in context: open a candidate, judge it, note the finding in your reply, then close() the files you ruled out — a rejected file has no future value, but the open/close calls stay in the session so you keep the conclusion without carrying the bytes. Narrow a wide window to the working region with open(windowId, offset, limit) once locating has served its purpose.",
+			"To delete or replace code sections, use standard edit() with unique text anchors from the live view — do not use shell scripts or regex replacements.",
+			"Closing windows with close() is optional and only needed to declutter when working across many files. You do not need to close windows before finishing your task.",
 		],
 		parameters: Type.Object({
 			path: Type.Optional(Type.String({ description: "File to open (relative or absolute). Omit when re-ranging an existing window." })),
@@ -660,8 +653,8 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 			blockTokens = block?.tokens ?? 0;
 
 			const percentOfCap = Math.round((blockTokens / b.maxLive) * 100);
-			const pressureWarning = percentOfCap >= 75
-				? `\nNotice: Live view is utilizing ${percentOfCap}% of cap (~${blockTokens}/${b.maxLive} tokens). Consider closing windows you have finished inspecting.`
+			const pressureWarning = percentOfCap >= 90
+				? `\nNotice: Context space is tight (live view utilizing ${percentOfCap}% of capacity). Consider closing windows you have finished inspecting.`
 				: "";
 
 			const outline = extractOutline(allLines);
@@ -673,8 +666,7 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 						type: "text" as const,
 						text: [
 							`open successful - live-view window ${w.id}`,
-							`${w.label}  ${range(info.startLine, info.endLine, info.total)}${outlinePart}`,
-							`window ~${windowTokens} tokens · ${sizeReport(b)}${pressureWarning}${duplicateNote}`,
+							`${w.label}  ${range(info.startLine, info.endLine, info.total)}${outlinePart}${pressureWarning}${duplicateNote}`,
 							"The file contents are already in your context: the LIVE VIEW block follows this tool result. You do not need to read this file again.",
 						].join("\n"),
 					},
@@ -688,10 +680,10 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 		name: "close",
 		label: "close",
 		description:
-			"Close live view window(s) created by open(): removed from the LIVE VIEW block and context space is freed. close(windowId) closes one window by id (e.g. 'blue-fox'); close(path) closes all open windows for that file.",
-		promptSnippet: "Close live-view window(s) and free context space",
+			"Close live view window(s) created by open(): removed from the LIVE VIEW block and context space is freed. Optional. close(windowId) closes one window by id (e.g. 'blue-fox'); close(path) closes all open windows for that file.",
+		promptSnippet: "Close live-view window(s) to free context space (optional)",
 		promptGuidelines: [
-			"Call close(windowId) to close a single window, or close(path) to close all open windows for that file when you are finished inspecting or editing to release context space.",
+			"Closing windows is optional. Call close(windowId) or close(path) if you want to declutter context when finished with a file.",
 		],
 		parameters: Type.Object({
 			windowId: Type.Optional(Type.String({ description: "Window id (e.g. 'blue-fox') to close" })),
@@ -750,7 +742,6 @@ Returns an acknowledgement receipt only (window id, range, outline symbols, and 
 						type: "text" as const,
 						text: [
 							`close ${closedDesc} successful.`,
-							`freed ~${freed} tokens · ${sizeReport(b)}`,
 							windows.length === 0 ? "No live view windows remain; the LIVE VIEW block is gone from requests." : `still open: ${windows.map((x) => `${x.id} ${x.label}`).join(", ")}`,
 						].join("\n"),
 					},
