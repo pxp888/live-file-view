@@ -504,15 +504,13 @@ export default function (pi: ExtensionAPI) {
 			`Inspect, view, examine, review, or edit a text file via a live window. Preferred over read() for all workspace text files: the window is NOT written into the conversation history, instead the current file contents are re-read from disk and appended to a LIVE VIEW block at the end of every request, so you always see the file as it is now with no rebuilding from diffs.
 
 Recommended workflow:
-- For files under ~500 lines, open(path) with no limit is cheaper than aiming — a whole-file window costs ~9 tokens/line and can be re-ranged later.
-- For larger files, locate the region with grep -n then open that range, or use open(path, around="symbol") / open(path, aroundLine=N) to aim directly.
 - open(windowId, offset, limit) re-ranges an existing window, keeping its id.
 
 Returns an acknowledgement receipt only (window id, range, outline symbols, and token budget), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Window contents are raw text with no line numbers: trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
 		promptSnippet: "Open a live-view window on a file (refreshed on every request)",
 		promptGuidelines: [
 			"Always prefer open() over read() for any text file you want to inspect, view, review, check, or edit. Do NOT call read() on text files in the workspace.",
-			"Workflow: for files under ~500 lines, open(path) without limit to view the whole file (~9 tokens/line). For larger files, locate with grep -n first, or use open(path, around='symbol') or open(path, aroundLine=N).",
+			"open(path, around='symbol') and open(path, aroundLine=N) aim a window directly at a region.",
 			"open() returns an acknowledgement receipt with file outline and symbols; the actual file contents are appended in the <<<<LIVE VIEW>>>> block at the end of the prompt in the same turn. Window contents have no line-number prefixes, and trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Do NOT call read() after open().",
 			"Edits and writes to windowed files are self-verifying and report fresh line numbers and line shift notes automatically.",
 			"Keep windows open while actively working with or referencing files, and close late rather than out of hand: close(windowId) or close(path) when a file's work is done (boilerplate, config, a file edited once) or when the live-view budget pushes back, not pre-emptively.",
