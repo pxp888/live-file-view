@@ -505,7 +505,7 @@ export default function (pi: ExtensionAPI) {
 
 Recommended workflow:
 - For files under ~500 lines, open(path) with no limit is cheaper than aiming — a whole-file window costs ~9 tokens/line and can be re-ranged later.
-- For larger files, locate the region with grep -n (or repo_map) then open that range, or use open(path, around="symbol") / open(path, aroundLine=N) to aim directly.
+- For larger files, locate the region with grep -n then open that range, or use open(path, around="symbol") / open(path, aroundLine=N) to aim directly.
 - open(windowId, offset, limit) re-ranges an existing window, keeping its id.
 
 Returns an acknowledgement receipt only (window id, range, outline symbols, and token budget), never file contents (contents appear in the <<<<LIVE VIEW>>>> block). Window contents are raw text with no line numbers: trailing and repeated whitespace in the block are byte-exact — copy them verbatim into edit search strings. Same limits as read(): ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB, whichever comes first. Windows are released with close(), freeing the space a read() would burn permanently.`,
